@@ -3,6 +3,8 @@
 #endif
 #define _gamma_included
 
+#include <sourcemod>
+
 // Maximum length a game mode name can be, including the NULL terminator
 #define GAME_MODE_NAME_MAX_LENGTH 32
 
@@ -485,14 +487,22 @@ native bool:Behaviour_GetPropertyString(Behaviour:behaviour, const String:proper
 
 /**
  *	Tells the game mode manager the plugin is unloading
- *	IT MUST ALWAYS BE CALLED OnPluginEnd() IF YOU CREATE BEHAVIOURS, BEHAVIOUR TYPES OR GAME MODES
- *	Optionally, if you don't use OnPluginEnd() write GAMMA_NOTIFYUNLOAD above OnPluginStart()
+ *	IT MUST ALWAYS BE CALLED OnPluginEnd() IF YOU CREATE BEHAVIOURS OR GAME MODES
+ *	If you require to use OnPluginEnd() then define GAMMA_MANUAL_UNLOAD_NOTIFY and make sure to call this function
  *
  *	@noreturn
  */
 native __GAMMA_PluginUnloading();
 
-#define GAMMA_NOTIFYUNLOAD public OnPluginEnd() { __GAMMA_PluginUnloading(); }
+#if !defined GAMMA_MANUAL_UNLOAD_NOTIFICATION
+public OnPluginEnd()
+{
+	if (LibraryExists("Gamma"))
+	{
+		__GAMMA_PluginUnloading();
+	}
+}
+#endif
 
 
 
@@ -502,7 +512,7 @@ native __GAMMA_PluginUnloading();
 // No touchy
 public SharedPlugin:__pl_gamma = 
 {
-    name = "gamma",
+    name = "Gamma",
     file = "gamma.smx",
 #if defined REQUIRE_PLUGIN
     required = 1,
