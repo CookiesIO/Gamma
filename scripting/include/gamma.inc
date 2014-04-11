@@ -55,14 +55,14 @@ enum Behaviour
  *	@return		ADT array with all game modes
  *	@note		Must be closed with CloseHandle!
  */
-native Handle:GetAllGameModes();
+native Handle:Gamma_GetAllGameModes();
 
 /**
  *	Returns the currently running game mode
  *
  *	@return		Current game mode or INVALID_GAME_MODE
  */
-native GameMode:GameMode_GetCurrent();
+native GameMode:Gamma_GetCurrentGameMode();
 
 
 
@@ -75,9 +75,18 @@ native GameMode:GameMode_GetCurrent();
  *	Registers the current plugin as a game mode in the game mode manager, only one game mode can be registered per plugin
  *
  *	@param name		Name of the game mode
- *	@return			GameMode identifier or INVALID_GAME_MODE if there's already a game mode with the same name
+ *	@return			GameMode reference
+ *	@error			Game mode with same name exists, plugin has already registered a game mode or creation failed
  */
-native GameMode:RegisterGameMode(String:name[]);
+native GameMode:Gamma_RegisterGameMode(const String:name[]);
+
+/**
+ *	Finds a game mode by name
+ *
+ *	@param name		Name of the game mode to search for
+ *	@return			GameMode reference or INVALID_GAME_MODE if not found
+ */
+native GameMode:Gamma_FindGameMode(const String:name[]);
 
 /**
  *	Returns an ADT array with all behaviour types for a game mode
@@ -86,17 +95,7 @@ native GameMode:RegisterGameMode(String:name[]);
  *	@return 			ADT array with all behaviour types in the game mode
  *	@note				Must be closed with CloseHandle!
  */
-native Handle:GameMode_GetAllBehaviourTypes(GameMode:gameMode);
-
-/**
- *	Adds an acknowledged BehaviourType to the game mode, only BehaviourTypes acknowledged by the game mode can be used in the game mode
- *
- *	@param gameMode	The game mode to add the behaviour type to
- *	@param type		The BehaviourType to add
- *	@noreturn
- *	@error			Invalid BehaviourType or already added by another game mode or invalid game mode
- */
-native GameMode_AddBehaviourType(GameMode:gameMode, BehaviourType:type);
+native Handle:Gamma_GetGameModeBehaviourTypes(GameMode:gameMode);
 
 /**
  *	Gives a client a Behaviour
@@ -107,7 +106,7 @@ native GameMode_AddBehaviourType(GameMode:gameMode, BehaviourType:type);
  *	@noreturn
  *	@error				Invalid client index or INVALID_BEHAVIOUR
  */
-native GameMode_GiveBehaviour(client, Behaviour:behaviour);
+native Gamma_GiveBehaviour(client, Behaviour:behaviour);
 
 /**
  *	Takes a clients Behaviour
@@ -118,7 +117,7 @@ native GameMode_GiveBehaviour(client, Behaviour:behaviour);
  *	@noreturn
  *	@error				Invalid client index or INVALID_BEHAVIOUR
  */
-native GameMode_TakeBehaviour(client, Behaviour:behaviour);
+native Gamma_TakeBehaviour(client, Behaviour:behaviour);
 
 /**
  *	Called on the game mode when its being registered
@@ -127,7 +126,7 @@ native GameMode_TakeBehaviour(client, Behaviour:behaviour);
  *
  *	@noreturn
  */
-forward GameMode_OnCreate();
+forward Gamma_OnCreateGameMode();
 
 /**
  *	Called on the game mode when it's being destroyed
@@ -136,56 +135,56 @@ forward GameMode_OnCreate();
  *
  *	@noreturn
  */
-forward GameMode_OnDestroy();
+forward Gamma_OnDestroyGameMode();
 
 /**
  *	Called when a game mode is registered and created
  *
  *	@noreturn
  */
-forward GameMode_OnCreated(GameMode:gameMode);
+forward Gamma_OnGameModeCreated(GameMode:gameMode);
 
 /**
  *	Called when a game mode just before a game mode is wholely destroyed
  *
  *	@noreturn
  */
-forward GameMode_OnDestroyed(GameMode:gameMode);
+forward Gamma_OnGameModeDestroyed(GameMode:gameMode);
 
 /**
  *	Called on the game mode selected in the game mode manager when a round starts
  *
  *	@return		True if the game mode can start, false otherwise
  */
-forward bool:GameMode_OnCanStart();
+forward bool:Gamma_IsGameModeAbleToStartRequest();
 
 /**
  *	Called on the game mode selected in the game mode manager when a round starts, if OnCanStart returned true
  *
  *	@noreturn
  */
-forward GameMode_OnStart();
+forward Gamma_OnGameModeStart();
 
 /**
  *	Called on the game mode selected in the game mode manager when a round ends
  *
  *	@noreturn
  */
-forward GameMode_OnEnd();
+forward Gamma_OnGameModeEnd();
 
 /**
  *	Called when the game mode has fully started, this is a global forward
  *
  *	@param gameMode		Reference to the game mode started
  */
-forward GameMode_OnStarted(GameMode:gameMode);
+forward Gamma_OnGameModeStarted(GameMode:gameMode);
 
 /**
  *	Called when the game mode has fully ended, this is a global forward
  *
  *	@param gameMode		Reference to the game mode ended
  */
-forward GameMode_OnEnded(GameMode:gameMode);
+forward Gamma_OnGameModeEnded(GameMode:gameMode);
 
 
 
@@ -198,9 +197,10 @@ forward GameMode_OnEnded(GameMode:gameMode);
  *	Creates a new BehaviourType with the specified name
  *
  *	@param name		Name of the behaviour type
- *	@return			Reference to the new behaviour type or INVALID_BEHAVIOUR_TYPE if a behaviour type with the same name exists
+ *	@return			Reference to the new behaviour type
+ *	@error			Behaviour type of same name exists or not called in Gamma_OnCreateGameMode
  */
-native BehaviourType:CreateBehaviourType(String:name[]);
+native BehaviourType:Gamma_CreateBehaviourType(const String:name[]);
 
 /**
  *	Creates a new BehaviourType with the specified name
@@ -208,7 +208,7 @@ native BehaviourType:CreateBehaviourType(String:name[]);
  *	@param name		Name of the behaviour type
  *	@return			Reference to the new behaviour type or INVALID_BEHAVIOUR_TYPE if no behaviour type was found
  */
-native BehaviourType:FindBehaviourType(String:name[]);
+native BehaviourType:Gamma_FindBehaviourType(const String:name[]);
 
 /**
  *	Gets the name of a behaviour type
@@ -218,7 +218,7 @@ native BehaviourType:FindBehaviourType(String:name[]);
  *	@param maxlen			Maximum length of the string buffer (includes NULL terminator)
  *	@noreturn
  */
-native BehaviourType_GetName(BehaviourType:behaviourType, String:buffer[], maxlen);
+native Gamma_GetBehaviourTypeName(BehaviourType:behaviourType, String:buffer[], maxlen);
 
 /**
  *	Adds a function requirement to the behaviour type
@@ -228,7 +228,7 @@ native BehaviourType_GetName(BehaviourType:behaviourType, String:buffer[], maxle
  *	@noreturn
  *	@error					The behaviour type is already associated with a game mode
  */
-native BehaviourType_AddRequirement(BehaviourType:behaviourType, String:functionName[]);
+native Gamma_AddBehaviourTypeRequirement(BehaviourType:behaviourType, const String:functionName[]);
 
 /**
  *	Returns an ADT array with Behaviours
@@ -237,7 +237,7 @@ native BehaviourType_AddRequirement(BehaviourType:behaviourType, String:function
  *	@return					ADT array with behaviours
  *	@note					Must be closed with CloseHandle!
  */
-native Handle:BehaviourType_GetAllBehaviours(BehaviourType:behaviourType);
+native Handle:Gamma_GetBehaviourTypeBehaviours(BehaviourType:behaviourType);
 
 
 
@@ -253,9 +253,10 @@ native Handle:BehaviourType_GetAllBehaviours(BehaviourType:behaviourType);
  *
  *	@param behaviourType	Behaviour type to "implement"
  *	@param behaviourName	Name of the registered behaviour
- *	@return					Behaviour identifier or INVALID_BEHAVIOUR if a behaviour of the same type and name already exists
+ *	@return					Behaviour identifier
+ *	@error					Behaviour with same name exists or plugin has already registered a behaviour for same game mode
  */
-native Behaviour:RegisterBehaviour(BehaviourType:behaviourType[], string:behaviourName[]);
+native Behaviour:Gamma_RegisterBehaviour(BehaviourType:behaviourType, const string:behaviourName[]);
 
 /**
  *	Gets the behaviour type of a behaviour
@@ -263,7 +264,7 @@ native Behaviour:RegisterBehaviour(BehaviourType:behaviourType[], string:behavio
  *	@param behaviour	Behaviour to get the behaviour type from
  *	@return				Behaviour type of the behaviour
  */
-native BehaviourType:Behaviour_GetType(Behaviour:behaviour);
+native BehaviourType:Gamma_GetBehaviourType(Behaviour:behaviour);
 
 /**
  *	Gets the name of a behaviour
@@ -273,7 +274,39 @@ native BehaviourType:Behaviour_GetType(Behaviour:behaviour);
  *	@param maxlen		Maximum length of the string buffer (includes NULL terminator)
  *	@noreturn
  */
-native Behaviour_GetName(Behaviour:behaviour, String:buffer[], maxlen);
+native Gamma_GetBehaviourName(Behaviour:behaviour, String:buffer[], maxlen);
+
+/**
+ *	Adds a function in the behaviour to the forward, if it exists
+ *
+ *	@param behaviour	Behaviour to fetch function from
+ *	@param functionName	Name of the function to get
+ *	@param fwd			Forward to add the function to
+ *	@return				True if the function was found, false otherwise
+ */
+native bool:Gamma_AddBehaviourFunctionToForward(Behaviour:behaviour, const String:functionName[], Handle:fwd);
+
+/**
+ *	Removes a function in the behaviour from the forward, if it exists
+ *
+ *	@param behaviour	Behaviour to fetch function from
+ *	@param functionName	Name of the function to get
+ *	@param fwd			Forward to add the function to
+ *	@return				True if the function was found, false otherwise
+ */
+native bool:Gamma_RemoveBehaviourFunctionFromForward(Behaviour:behaviour, const String:functionName[], Handle:fwd);
+
+/**
+ *	Calls a function in the behaviour, if it exists
+ *	However parameters are limited to cells
+ *
+ *	@param behaviour		Behaviour to call the function in
+ *	@param functionName		Name of the function to call
+ *	@param defaultValue		Default return value
+ *	@param ...				Parameters to pass onto the function call
+ *	@return					Return value of the function or default return value
+ */
+native Gamma_SimpleBehaviourFunctionCall(Behaviour:behaviour, const String:functionName[], any:defaultValue=0, any:...);
 
 /**
  *	Called on the owning behaviour when it's given to a client
@@ -281,7 +314,7 @@ native Behaviour_GetName(Behaviour:behaviour, String:buffer[], maxlen);
  *	@param client		Client the behaviour was given to
  *	@noreturn
  */
-forward Behaviour_OnPossessing(client);
+forward Gamma_OnBehaviourPossessingClient(client);
 
 /**
  *	Called on the owning behaviour when it's taken from a client
@@ -289,7 +322,7 @@ forward Behaviour_OnPossessing(client);
  *	@param client		Client the behaviour was taken from
  *	@noreturn
  */
-forward Behaviour_OnReleasing(client);
+forward Gamma_OnBehaviourReleasingClient(client);
 
 /**
  *	Called after a client has been given a behaviour
@@ -298,7 +331,7 @@ forward Behaviour_OnReleasing(client);
  *	@param behaviour	Behaviour that was given
  *	@noreturn
  */
-forward Behaviour_OnClientPossessed(client, Behaviour:behaviour);
+forward Gamma_OnBehaviourPossessedClient(client, Behaviour:behaviour);
 
 /**
  *	Called after a client has lost a behaviour
@@ -307,7 +340,7 @@ forward Behaviour_OnClientPossessed(client, Behaviour:behaviour);
  *	@param behaviour	Behaviour that was given
  *	@noreturn
  */
-forward Behaviour_OnClientReleased(client, Behaviour:behaviour);
+forward Gamma_OnBehaviourReleasedClient(client, Behaviour:behaviour);
 
 /**
  *	Called on a behaviour when a clients movement buttons are being processed, if the client owns the behaviour
@@ -329,7 +362,7 @@ forward Behaviour_OnClientReleased(client, Behaviour:behaviour);
  *	@note				To see if all 11 params are avaliable, use FeatureType_Capability and
  *						FEATURECAP_PLAYERRUNCMD_11PARAMS.
  */
-forward Action:Behaviour_OnPlayerRunCmd(client, &buttons, &impulse, Float:vel[3], Float:angles[3], &weapon, &subtype, &cmdnum, &tickcount, &seed, mouse[2]);
+forward Action:Gamma_OnBehaviourPlayerRunCmd(client, &buttons, &impulse, Float:vel[3], Float:angles[3], &weapon, &subtype, &cmdnum, &tickcount, &seed, mouse[2]);
 
 // So we have FEATURECAP_PLAYERRUNCMD_11PARAMS
 #include <sdktools_hooks>
@@ -349,7 +382,7 @@ forward Action:Behaviour_OnPlayerRunCmd(client, &buttons, &impulse, Float:vel[3]
  *	@param value			Value to store in the property
  *	@noreturn
  */
-native GameMode_SetPropertyValue(GameMode:gameMode, const String:property[], any:value);
+native Gamma_SetGameModeValue(GameMode:gameMode, const String:property[], any:value);
 
 /**
  *	Sets a property on the game mode
@@ -360,7 +393,7 @@ native GameMode_SetPropertyValue(GameMode:gameMode, const String:property[], any
  *	@param num_items		Number of items in the array
  *	@noreturn
  */
-native GameMode_SetPropertyArray(GameMode:gameMode, const String:property[], any:array[], num_items);
+native Gamma_SetGameModeArray(GameMode:gameMode, const String:property[], any:array[], num_items);
 
 /**
  *	Sets a property on the game mode
@@ -370,7 +403,7 @@ native GameMode_SetPropertyArray(GameMode:gameMode, const String:property[], any
  *	@param value			String to store in the property
  *	@noreturn
  */
-native GameMode_SetPropertyString(GameMode:gameMode, const String:property[], const String:value[]);
+native Gamma_SetGameModeString(GameMode:gameMode, const String:property[], const String:value[]);
 
 /**
  *	Gets a property on the game mode
@@ -380,7 +413,7 @@ native GameMode_SetPropertyString(GameMode:gameMode, const String:property[], co
  *	@param value			Variable to store value
  *	@return					True on success, false if the the property is not set or is not set as a value
  */
-native bool:GameMode_GetPropertyValue(GameMode:gameMode, const String:property[], &any:value);
+native bool:Gamma_GetGameModeValue(GameMode:gameMode, const String:property[], &any:value);
 
 /**
  *	Gets a property on the game mode
@@ -392,7 +425,7 @@ native bool:GameMode_GetPropertyValue(GameMode:gameMode, const String:property[]
  *	@param written			Optional parameter to store the number of elements written to the buffer
  *	@return					True on success, false if the the property is not set or is not set as an array
  */
-native bool:GameMode_GetPropertyArray(GameMode:gameMode, const String:property[], any:array[], max_size, &written=0);
+native bool:Gamma_GetGameModeArray(GameMode:gameMode, const String:property[], any:array[], max_size, &written=0);
 
 /**
  *	Gets a property on the game mode
@@ -404,7 +437,7 @@ native bool:GameMode_GetPropertyArray(GameMode:gameMode, const String:property[]
  *	@param written			Optional parameter to store the number of elements written to the buffer
  *	@return					True on success, false if the the property is not set or is not set as a string
  */
-native bool:GameMode_GetPropertyString(GameMode:gameMode, const String:property[], String:value[], max_size, &written=0);
+native bool:Gamma_GetGameModeString(GameMode:gameMode, const String:property[], String:value[], max_size, &written=0);
 
 
 
@@ -421,7 +454,7 @@ native bool:GameMode_GetPropertyString(GameMode:gameMode, const String:property[
  *	@param value			Value to store in the property
  *	@noreturn
  */
-native Behaviour_SetPropertyValue(Behaviour:behaviour, const String:property[], any:value);
+native Gamma_SetBehaviourValue(Behaviour:behaviour, const String:property[], any:value);
 
 /**
  *	Sets a property in the behaviour
@@ -432,7 +465,7 @@ native Behaviour_SetPropertyValue(Behaviour:behaviour, const String:property[], 
  *	@param num_items		Number of items in the array
  *	@noreturn
  */
-native Behaviour_SetPropertyArray(Behaviour:behaviour, const String:property[], any:array[], num_items);
+native Gamma_SetBehaviourArray(Behaviour:behaviour, const String:property[], any:array[], num_items);
 
 /**
  *	Sets a property in the behaviour
@@ -442,7 +475,7 @@ native Behaviour_SetPropertyArray(Behaviour:behaviour, const String:property[], 
  *	@param value			String to store in the property
  *	@noreturn
  */
-native Behaviour_SetPropertyString(Behaviour:behaviour, const String:property[], const String:value[]);
+native Gamma_SetBehaviourString(Behaviour:behaviour, const String:property[], const String:value[]);
 
 /**
  *	Gets a property on the behaviour
@@ -452,7 +485,7 @@ native Behaviour_SetPropertyString(Behaviour:behaviour, const String:property[],
  *	@param value			Variable to store value
  *	@return					True on success, false if the the property is not set or is not set as a value
  */
-native bool:Behaviour_GetPropertyValue(Behaviour:behaviour, const String:property[], &any:value);
+native bool:Gamma_GetBehaviourValue(Behaviour:behaviour, const String:property[], &any:value);
 
 /**
  *	Gets a property on the behaviour
@@ -464,7 +497,7 @@ native bool:Behaviour_GetPropertyValue(Behaviour:behaviour, const String:propert
  *	@param written			Optional parameter to store the number of elements written to the buffer
  *	@return					True on success, false if the the property is not set or is not set as an array
  */
-native bool:Behaviour_GetPropertyArray(Behaviour:behaviour, const String:property[], any:array[], max_size, &written=0);
+native bool:Gamma_GetBehaviourArray(Behaviour:behaviour, const String:property[], any:array[], max_size, &written=0);
 
 /**
  *	Gets a property on the behaviour
@@ -476,7 +509,7 @@ native bool:Behaviour_GetPropertyArray(Behaviour:behaviour, const String:propert
  *	@param written			Optional parameter to store the number of elements written to the buffer
  *	@return					True on success, false if the the property is not set or is not set as a string
  */
-native bool:Behaviour_GetPropertyString(Behaviour:behaviour, const String:property[], String:value[], max_size, &written=0);
+native bool:Gamma_GetBehaviourString(Behaviour:behaviour, const String:property[], String:value[], max_size, &written=0);
 
 
 
@@ -494,10 +527,10 @@ native bool:Behaviour_GetPropertyString(Behaviour:behaviour, const String:proper
  */
 native __GAMMA_PluginUnloading();
 
-#if !defined GAMMA_MANUAL_UNLOAD_NOTIFICATION
+#if (defined GAMMA_CONTAINS_GAME_MODE || defined GAMMA_CONTAINS_BEHAVIOUR) && !defined GAMMA_MANUAL_UNLOAD_NOTIFICATION
 public OnPluginEnd()
 {
-	if (LibraryExists("Gamma"))
+	if (LibraryExists("gamma"))
 	{
 		__GAMMA_PluginUnloading();
 	}
@@ -512,7 +545,7 @@ public OnPluginEnd()
 // No touchy
 public SharedPlugin:__pl_gamma = 
 {
-    name = "Gamma",
+    name = "gamma",
     file = "gamma.smx",
 #if defined REQUIRE_PLUGIN
     required = 1,
@@ -526,43 +559,47 @@ public SharedPlugin:__pl_gamma =
 public __pl_gamma_SetNTVOptional()
 {
 	// Misc natives
-	MarkNativeAsOptional("GetAllGameModes");
-	MarkNativeAsOptional("GameMode_GetCurrent");
+	MarkNativeAsOptional("Gamma_GetAllGameModes");
+	MarkNativeAsOptional("Gamma_GetCurrentGameMode");
 
 	// Game mode natives
-	MarkNativeAsOptional("RegisterGameMode");
-	MarkNativeAsOptional("GameMode_GetAllBehaviourTypes");
-	MarkNativeAsOptional("GameMode_AddBehaviourType");
-	MarkNativeAsOptional("GameMode_GiveBehaviour");
-	MarkNativeAsOptional("GameMode_TakeBehaviour");
+	MarkNativeAsOptional("Gamma_RegisterGameMode");
+	MarkNativeAsOptional("Gamma_FindGameMode");
+	MarkNativeAsOptional("Gamma_GetGameModeBehaviourTypes");
+	MarkNativeAsOptional("Gamma_GiveBehaviour");
+	MarkNativeAsOptional("Gamma_TakeBehaviour");
+	// TODO: Add native to forcefully end the game mode?
 
 	// Behaviour type natives
-	MarkNativeAsOptional("CreateBehaviourType");
-	MarkNativeAsOptional("FindBehaviourType");
-	MarkNativeAsOptional("BehaviourType_GetName");
-	MarkNativeAsOptional("BehaviourType_AddRequirement");
-	MarkNativeAsOptional("BehaviourType_GetAllBehaviours");
+	MarkNativeAsOptional("Gamma_CreateBehaviourType");
+	MarkNativeAsOptional("Gamma_FindBehaviourType");
+	MarkNativeAsOptional("Gamma_GetBehaviourTypeName");
+	MarkNativeAsOptional("Gamma_AddBehaviourTypeRequirement");
+	MarkNativeAsOptional("Gamma_GetBehaviourTypeBehaviours");
 
 	// Behaviour natives
-	MarkNativeAsOptional("RegisterBehaviour");
-	MarkNativeAsOptional("Behaviour_GetType");
-	MarkNativeAsOptional("Behaviour_GetName");
+	MarkNativeAsOptional("Gamma_RegisterBehaviour");
+	MarkNativeAsOptional("Gamma_GetBehaviourType");
+	MarkNativeAsOptional("Gamma_GetBehaviourName");
+	MarkNativeAsOptional("Gamma_AddBehaviourFunctionToForward");
+	MarkNativeAsOptional("Gamma_RemoveBehaviourFunctionFromForward");
+	MarkNativeAsOptional("Gamma_SimpleBehaviourFunctionCall");
 
 	// Game mode properties natives
-	MarkNativeAsOptional("GameMode_SetPropertyValue");
-	MarkNativeAsOptional("GameMode_SetPropertyArray");
-	MarkNativeAsOptional("GameMode_SetPropertyString");
-	MarkNativeAsOptional("GameMode_GetPropertyValue");
-	MarkNativeAsOptional("GameMode_GetPropertyArray");
-	MarkNativeAsOptional("GameMode_GetPropertyString");
+	MarkNativeAsOptional("Gamma_SetGameModeValue");
+	MarkNativeAsOptional("Gamma_SetGameModeArray");
+	MarkNativeAsOptional("Gamma_SetGameModeString");
+	MarkNativeAsOptional("Gamma_GetGameModeValue");
+	MarkNativeAsOptional("Gamma_GetGameModeArray");
+	MarkNativeAsOptional("Gamma_GetGameModeString");
 
 	// Behaviour properties natives
-	MarkNativeAsOptional("Behaviour_SetPropertyValue");
-	MarkNativeAsOptional("Behaviour_SetPropertyArray");
-	MarkNativeAsOptional("Behaviour_SetPropertyString");
-	MarkNativeAsOptional("Behaviour_GetPropertyValue");
-	MarkNativeAsOptional("Behaviour_GetPropertyArray");
-	MarkNativeAsOptional("Behaviour_GetPropertyString");
+	MarkNativeAsOptional("Gamma_SetBehaviourValue");
+	MarkNativeAsOptional("Gamma_SetBehaviourArray");
+	MarkNativeAsOptional("Gamma_SetBehaviourString");
+	MarkNativeAsOptional("Gamma_GetBehaviourValue");
+	MarkNativeAsOptional("Gamma_GetBehaviourArray");
+	MarkNativeAsOptional("Gamma_GetBehaviourString");
 
 	// Special natives
 	MarkNativeAsOptional("__GAMMA_PluginUnloading");

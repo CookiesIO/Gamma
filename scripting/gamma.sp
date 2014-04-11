@@ -32,7 +32,8 @@
  *
  *	Gamma was written in roughly 2 days - and hasn't been tested, but hey, it compiles!
  *	There are some thing I would like to have different, but ehh, how to say it, I don't
- *	have the tools needed nor do I have a test server, so yeah. Search for TODO:'s
+ *	have the tools needed nor do I have a test server yet, so yeah.
+ *	Search for TODO:'s (Actually not that many of them)
  *
  *	And one final thing, GameMode, BehaviourType and Behaviour's aren't validated that often
  *	in any way, but are assumed to be proper instances where expected, should probably at
@@ -96,6 +97,39 @@ public Plugin:myinfo =
 #define BEHAVIOUR_NAME "Name"
 #define BEHAVIOUR_POSSESSED_PLAYERS "PossessedPlayers"
 
+
+
+/*******************************************************************************
+ *	CREATION ERROR CODES DEFINITIONS
+ *******************************************************************************/
+
+enum GameModeCreationError
+{
+	GameModeCreationError_None,
+	GameModeCreationError_AlreadyExists,
+	GameModeCreationError_PluginAlreadyHasGameMode,
+	GameModeCreationError_CreationFailed,
+}
+
+enum BehaviourTypeCreationError
+{
+	BehaviourTypeCreationError_None,
+	BehaviourTypeCreationError_AlreadyExists,
+	BehaviourTypeCreationError_GameModeNotInCreation,
+}
+
+enum BehaviourCreationError
+{
+	BehaviourCreationError_None,
+	BehaviourCreationError_AlreadyExists,
+	BehaviourCreationError_RequirementsNotMet,
+	BehaviourCreationError_PluginAlreadyHasForGameMode,
+}
+
+/*******************************************************************************
+ *	MISC DEFINITIONS
+ *******************************************************************************/
+
 // The maximum size of the full name of a behaviour
 #define BEHAVIOUR_FULL_NAME_MAX_LENGTH BEHAVIOUR_TYPE_NAME_MAX_LENGTH+BEHAVIOUR_NAME_MAX_LENGTH
 
@@ -129,24 +163,29 @@ new Handle:g_hClientArrayBehaviours[MAXPLAYERS+1];					// List<Behaviour>[MAXPLA
 new Handle:g_hClientPrivateBehaviourPlayerRunCmd[MAXPLAYERS+1]; 	// Forward[MAXPLAYERS+1]
 new bool:g_bClientHasPrivateBehaviourPlayerRunCmd[MAXPLAYERS+1];	// bool[MAXPLAYERS+1]
 
+// Game mode creation variables
+new bool:g_bGameModeInitializationFailed;
+new GameMode:g_hGameModeInitializing;
+new Handle:g_hGameModeInitializingPlugin;
+
 // State variables
 new bool:g_bIsActive;
-new GameMode:g_hCurrentGameMode;
 new Handle:g_hGameModePlugin;
+new GameMode:g_hCurrentGameMode;
 
 // Global forwards
-new Handle:g_hGlobalGameMode_OnCreated;				//	GameMode_OnCreated(GameMode:gameMode)
-new Handle:g_hGlobalGameMode_OnDestroyed;			//	GameMode_OnDestroyed(GameMode:gameMode)
+new Handle:g_hGlobal_OnGameModeCreated;				//	Gamma_OnGameModeCreated(GameMode:gameMode)
+new Handle:g_hGlobal_OnGameModeDestroyed;			//	Gamma_OnGameModeDestroyed(GameMode:gameMode)
 
-new Handle:g_hGlobalGameMode_OnStarted;				//	GameMode_OnStarted(GameMode:gameMode)
-new Handle:g_hGlobalGameMode_OnEnded;				//	GameMode_OnEnded(GameMode:gameMode)
+new Handle:g_hGlobal_OnGameModeStarted;				//	Gamma_OnGameModeStarted(GameMode:gameMode)
+new Handle:g_hGlobal_OnGameModeEnded;				//	Gamma_OnGameModeEnded(GameMode:gameMode)
 
-new Handle:g_hGlobalBehaviour_OnClientPossessed;	//	Behaviour_OnClientPossessed(client, Behaviour:behaviour)
-new Handle:g_hGlobalBehaviour_OnClientReleased;		//	Behaviour_OnClientReleased(client, Behaviour:behaviour)
+new Handle:g_hGlobal_OnBehaviourPossessedClient;	//	Gamma_OnClientPossessedByBehaviour(client, Behaviour:behaviour)
+new Handle:g_hGlobal_OnBehaviourReleasedClient;		//	Gamma_OnClientReleasedFromBehaviour(client, Behaviour:behaviour)
 
 // Cvars
-new Handle:g_hCvarEnabled;					// gamma_enabled "<0|1>"
-new Handle:g_hCvarGameMode;					// gamma_gamemode "gamemode name"
+new Handle:g_hCvarEnabled;	// gamma_enabled "<0|1>"
+new Handle:g_hCvarGameMode;	// gamma_gamemode "gamemode name"
 
 // Game mode selection method, 1=strictly by cvar, 2=first able to start, 3=by cvar but if it can't start then the first able to start
 new Handle:g_hCvarGameModeSelectionMode;	// gamma_gamemode_selection_mode "<1|2|3>" 
@@ -160,44 +199,47 @@ new Handle:g_hCvarGameModeSelectionMode;	// gamma_gamemode_selection_mode "<1|2|
 public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 {
 	// Misc natives
-	CreateNative("GetAllGameModes", Native_GetAllGameModes);
-	CreateNative("GameMode_GetCurrent", Native_GameMode_GetCurrent);
+	CreateNative("Gamma_GetAllGameModes", Native_Gamma_GetAllGameModes);
+	CreateNative("Gamma_GetCurrentGameMode", Native_Gamma_GetCurrentGameMode);
 
 	// Game mode natives
-	CreateNative("RegisterGameMode", Native_RegisterGameMode);
-	CreateNative("GameMode_GetAllBehaviourTypes", Native_GameMode_GetAllBehaviourTypes);
-	CreateNative("GameMode_AddBehaviourType", Native_GameMode_AddBehaviourType);
-	CreateNative("GameMode_GiveBehaviour", Native_GameMode_GiveBehaviour);
-	CreateNative("GameMode_TakeBehaviour", Native_GameMode_TakeBehaviour);
+	CreateNative("Gamma_RegisterGameMode", Native_Gamma_RegisterGameMode);
+	CreateNative("Gamma_FindGameMode", Native_Gamma_FindGameMode);
+	CreateNative("Gamma_GetGameModeBehaviourTypes", Native_Gamma_GetGameModeBehaviourTypes);
+	CreateNative("Gamma_GiveBehaviour", Native_Gamma_GiveBehaviour);
+	CreateNative("Gamma_TakeBehaviour", Native_Gamma_TakeBehaviour);
 	// TODO: Add native to forcefully end the game mode?
 
 	// Behaviour type natives
-	CreateNative("CreateBehaviourType", Native_CreateBehaviourType);
-	CreateNative("FindBehaviourType", Native_FindBehaviourType);
-	CreateNative("BehaviourType_GetName", Native_BehaviourType_GetName);
-	CreateNative("BehaviourType_AddRequirement", Native_BehaviourType_AddRequirement);
-	CreateNative("BehaviourType_GetAllBehaviours", Native_BehaviourType_GetAllBehaviours);
+	CreateNative("Gamma_CreateBehaviourType", Native_Gamma_CreateBehaviourType);
+	CreateNative("Gamma_FindBehaviourType", Native_Gamma_FindBehaviourType);
+	CreateNative("Gamma_GetBehaviourTypeName", Native_Gamma_GetBehaviourTypeName);
+	CreateNative("Gamma_AddBehaviourTypeRequirement", Native_Gamma_AddBehaviourTypeRequirement);
+	CreateNative("Gamma_GetBehaviourTypeBehaviours", Native_Gamma_GetBehaviourTypeBehaviours);
 
 	// Behaviour natives
-	CreateNative("RegisterBehaviour", Native_RegisterBehaviour);
-	CreateNative("Behaviour_GetType", Native_Behaviour_GetType);
-	CreateNative("Behaviour_GetName", Native_Behaviour_GetName);
+	CreateNative("Gamma_RegisterBehaviour", Native_Gamma_RegisterBehaviour);
+	CreateNative("Gamma_GetBehaviourType", Native_Gamma_GetBehaviourType);
+	CreateNative("Gamma_GetBehaviourName", Native_Gamma_GetBehaviourName);
+	CreateNative("Gamma_AddBehaviourFunctionToForward", Native_Gamma_AddBehaviourFunctionToForward);
+	CreateNative("Gamma_RemoveBehaviourFunctionFromForward", Native_Gamma_RemoveBehaviourFunctionFromForward);
+	CreateNative("Gamma_SimpleBehaviourFunctionCall", Native_Gamma_SimpleBehaviourFunctionCall);
 
 	// Game mode properties natives
-	CreateNative("GameMode_SetPropertyValue", Native_GameMode_SetPropertyValue);
-	CreateNative("GameMode_SetPropertyArray", Native_GameMode_SetPropertyArray);
-	CreateNative("GameMode_SetPropertyString", Native_GameMode_SetPropertyString);
-	CreateNative("GameMode_GetPropertyValue", Native_GameMode_GetPropertyValue);
-	CreateNative("GameMode_GetPropertyArray", Native_GameMode_GetPropertyArray);
-	CreateNative("GameMode_GetPropertyString", Native_GameMode_GetPropertyString);
+	CreateNative("Gamma_SetGameModeValue", Native_Gamma_SetGameModeValue);
+	CreateNative("Gamma_SetGameModeArray", Native_Gamma_SetGameModeArray);
+	CreateNative("Gamma_SetGameModeString", Native_Gamma_SetGameModeString);
+	CreateNative("Gamma_GetGameModeValue", Native_Gamma_GetGameModeValue);
+	CreateNative("Gamma_GetGameModeArray", Native_Gamma_GetGameModeArray);
+	CreateNative("Gamma_GetGameModeString", Native_Gamma_GetGameModeString);
 
 	// Behaviour properties natives
-	CreateNative("Behaviour_SetPropertyValue", Native_Behaviour_SetPropertyValue);
-	CreateNative("Behaviour_SetPropertyArray", Native_Behaviour_SetPropertyArray);
-	CreateNative("Behaviour_SetPropertyString", Native_Behaviour_SetPropertyString);
-	CreateNative("Behaviour_GetPropertyValue", Native_Behaviour_GetPropertyValue);
-	CreateNative("Behaviour_GetPropertyArray", Native_Behaviour_GetPropertyArray);
-	CreateNative("Behaviour_GetPropertyString", Native_Behaviour_GetPropertyString);
+	CreateNative("Gamma_SetBehaviourValue", Native_Gamma_SetBehaviourValue);
+	CreateNative("Gamma_SetBehaviourArray", Native_Gamma_SetBehaviourArray);
+	CreateNative("Gamma_SetBehaviourString", Native_Gamma_SetBehaviourString);
+	CreateNative("Gamma_GetBehaviourValue", Native_Gamma_GetBehaviourValue);
+	CreateNative("Gamma_GetBehaviourArray", Native_Gamma_GetBehaviourArray);
+	CreateNative("Gamma_GetBehaviourString", Native_Gamma_GetBehaviourString);
 
 	// Special natives
 	CreateNative("__GAMMA_PluginUnloading", Native__GAMMA_PluginUnloading);
@@ -220,14 +262,14 @@ public OnPluginStart()
 	g_hArrayBehaviours = CreateArray();
 
 	// Global forwards
-	g_hGlobalGameMode_OnCreated = CreateGlobalForward("GameMode_OnCreated", ET_Ignore, Param_Cell);
-	g_hGlobalGameMode_OnDestroyed = CreateGlobalForward("GameMode_OnDestroyed", ET_Ignore, Param_Cell);
+	g_hGlobal_OnGameModeCreated = CreateGlobalForward("Gamma_OnGameModeCreated", ET_Ignore, Param_Cell);
+	g_hGlobal_OnGameModeDestroyed = CreateGlobalForward("Gamma_OnGameModeDestroyed", ET_Ignore, Param_Cell);
 
-	g_hGlobalGameMode_OnStarted = CreateGlobalForward("GameMode_OnStarted", ET_Ignore, Param_Cell);
-	g_hGlobalGameMode_OnEnded = CreateGlobalForward("GameMode_OnEnded", ET_Ignore, Param_Cell);
+	g_hGlobal_OnGameModeStarted = CreateGlobalForward("Gamma_OnGameModeStarted", ET_Ignore, Param_Cell);
+	g_hGlobal_OnGameModeEnded = CreateGlobalForward("Gamma_OnGameModeEnded", ET_Ignore, Param_Cell);
 
-	g_hGlobalBehaviour_OnClientPossessed = CreateGlobalForward("Behaviour_OnClientPossessed", ET_Ignore, Param_Cell, Param_Cell);
-	g_hGlobalBehaviour_OnClientReleased = CreateGlobalForward("Behaviour_OnClientReleased", ET_Ignore, Param_Cell, Param_Cell);
+	g_hGlobal_OnBehaviourPossessedClient = CreateGlobalForward("Gamma_OnBehaviourPossessedClient", ET_Ignore, Param_Cell, Param_Cell);
+	g_hGlobal_OnBehaviourReleasedClient = CreateGlobalForward("Gamma_OnBehaviourReleasedClient", ET_Ignore, Param_Cell, Param_Cell);
 
 	// State variable initialization
 	g_bIsActive = false;
@@ -333,11 +375,8 @@ stock StopGameMode(bool:forceful)
 {
 	if (g_hCurrentGameMode != INVALID_GAME_MODE)
 	{
-		SimpleOptionalPluginCall(g_hGameModePlugin, "GameMode_OnEnd");
-		SimpleForwardCallOneCell(g_hGlobalGameMode_OnEnded, g_hCurrentGameMode);
-
-		g_hCurrentGameMode = INVALID_GAME_MODE;
-		g_hGameModePlugin = INVALID_HANDLE;
+		SimpleOptionalPluginCall(g_hGameModePlugin, "Gamma_OnGameModeEnd");
+		SimpleForwardCallOneParam(g_hGlobal_OnGameModeEnded, g_hCurrentGameMode);
 
 		// Release all clients from their behaviours (curses!)
 		for (new i = 1; i <= MaxClients; i++)
@@ -351,6 +390,14 @@ stock StopGameMode(bool:forceful)
 				}
 			}
 		}
+
+		if (forceful)
+		{
+			// Force stalemate
+		}
+
+		g_hCurrentGameMode = INVALID_GAME_MODE;
+		g_hGameModePlugin = INVALID_HANDLE;
 
 		g_bIsActive = false;
 	}
@@ -408,14 +455,14 @@ stock bool:AttemptStart(GameMode:gameMode)
 	{
 		new Handle:gameModePlugin = GetGameModePlugin(gameMode);
 
-		new bool:canStart = bool:SimpleOptionalPluginCallReturnCell(gameModePlugin, "GameMode_OnCanStart", true);
+		new bool:canStart = bool:SimpleOptionalPluginCall(gameModePlugin, "Gamma_IsGameModeAbleToStartRequest", true);
 		if (canStart)
 		{
 			g_hCurrentGameMode = gameMode;
 			g_hGameModePlugin = gameModePlugin;
 
-			SimpleOptionalPluginCall(gameModePlugin, "GameMode_OnStart");
-			SimpleForwardCallOneCell(g_hGlobalGameMode_OnStarted, gameMode);
+			SimpleOptionalPluginCall(gameModePlugin, "Gamma_OnGameModeStart");
+			SimpleForwardCallOneParam(g_hGlobal_OnGameModeStarted, gameMode);
 
 			g_bIsActive = true;
 			return true;
@@ -468,12 +515,12 @@ public Native__GAMMA_PluginUnloading(Handle:plugin, numParams)
  *	MISC NATIVES
  *******************************************************************************/
 
-public Native_GetAllGameModes(Handle:plugin, numParams)
+public Native_Gamma_GetAllGameModes(Handle:plugin, numParams)
 {
 	return _:CloneArray(g_hArrayGameModes);
 }
 
-public Native_GameMode_GetCurrent(Handle:plugin, numParams)
+public Native_Gamma_GetCurrentGameMode(Handle:plugin, numParams)
 {
 	return _:g_hCurrentGameMode;
 }
@@ -483,62 +530,60 @@ public Native_GameMode_GetCurrent(Handle:plugin, numParams)
  *	GAME MODE NATIVES
  *******************************************************************************/
 
-public Native_RegisterGameMode(Handle:plugin, numParams)
+public Native_Gamma_RegisterGameMode(Handle:plugin, numParams)
 {
 	// Get the game mode name
-	new String:buffer[GAME_MODE_NAME_MAX_LENGTH];
-	GetNativeString(1, buffer, sizeof(buffer));
+	new String:name[GAME_MODE_NAME_MAX_LENGTH];
+	GetNativeString(1, name, sizeof(name));
 
-	// The plugin has already registered a game mode, fail
-	// TODO: Should this be an error instead?
-	new GameMode:gameMode = FindGameModeByPlugin(plugin);
-	if (gameMode != INVALID_GAME_MODE)
+	new GameModeCreationError:error;
+	new GameMode:gameMode = CreateGameMode(plugin, name, error);
+
+	// throw error, if there's any
+	switch (error)
 	{
-		return _:INVALID_GAME_MODE;
+		case GameModeCreationError_AlreadyExists:
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "A game mode with the same name already exists (%s)", name);
+		}
+		case GameModeCreationError_PluginAlreadyHasGameMode:
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Plugin already has a game mode registered");
+		}
+		case GameModeCreationError_CreationFailed:
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Game mode creation failed");
+		}
 	}
 
-	// If it already exists, fail
-	// TODO: Should this be an error instead?
-	gameMode = FindGameMode(buffer);
-	if (gameMode != INVALID_GAME_MODE)
-	{
-		return _:INVALID_GAME_MODE;
-	}
-
-	// Else create a new game mode
-	return _:CreateGameMode(plugin, buffer);
+	return _:gameMode;
 }
 
-public Native_GameMode_GetAllBehaviourTypes(Handle:plugin, numParams)
+public Native_Gamma_FindGameMode(Handle:plugin, numParams)
+{
+	new length;
+	GetNativeStringLength(1, length);
+	new String:buffer[length+1];
+	GetNativeString(1, buffer, length+1);
+
+	return _:FindGameMode(buffer);
+}
+
+public Native_Gamma_GetGameModeBehaviourTypes(Handle:plugin, numParams)
 {
 	new GameMode:gameMode = GameMode:GetNativeCell(1);
-	new Handle:behaviourTypes = GameMode_GetAllBehaviourTypes(gameMode);
+	new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
 	return _:CloneArray(behaviourTypes);
 }
 
-public Native_GameMode_AddBehaviourType(Handle:plugin, numParams)
-{
-	new GameMode:gameMode = GameMode:GetNativeCell(1);
-	new BehaviourType:behaviourType = BehaviourType:GetNativeCell(2);
-
-	// If the game mode plugin and behaviour type plugin isn't the same plugin, it's not possible to add it
-	if (GetGameModePlugin(gameMode) != GetBehaviourTypePlugin(behaviourType))
-	{
-		return ThrowNativeError(SP_ERROR_NATIVE, "A behaviour type can only be added by the owning game mode plugin");
-	}
-
-	AddBehaviourType(gameMode, behaviourType);
-	return 1;
-}
-
-public Native_GameMode_GiveBehaviour(Handle:plugin, numParams)
+public Native_Gamma_GiveBehaviour(Handle:plugin, numParams)
 {
 	new client = GetNativeCell(1);
 	new Behaviour:behaviour = Behaviour:GetNativeCell(2);
 
 	if (g_hGameModePlugin != plugin)
 	{
-		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call GameMode_GiveBehaviour");
+		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call Gamma_GiveBehaviour");
 	}
 	if (client < 1 || client > MaxClients)
 	{
@@ -553,14 +598,14 @@ public Native_GameMode_GiveBehaviour(Handle:plugin, numParams)
 	return 1;
 }
 
-public Native_GameMode_TakeBehaviour(Handle:plugin, numParams)
+public Native_Gamma_TakeBehaviour(Handle:plugin, numParams)
 {
 	new client = GetNativeCell(1);
 	new Behaviour:behaviour = Behaviour:GetNativeCell(2);
 
 	if (g_hGameModePlugin != plugin)
 	{
-		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call GameMode_TakeBehaviour");
+		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call Gamma_TakeBehaviour");
 	}
 	if (client < 1 || client > MaxClients)
 	{
@@ -580,31 +625,40 @@ public Native_GameMode_TakeBehaviour(Handle:plugin, numParams)
  *	BEHAVIOUR TYPE NATIVES
  *******************************************************************************/
 
-public Native_CreateBehaviourType(Handle:plugin, numParams)
+public Native_Gamma_CreateBehaviourType(Handle:plugin, numParams)
 {
 	new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
 	GetNativeString(1, behaviourTypeName, sizeof(behaviourTypeName));
 
-	// If we find a behaviour type with the same name, we can't use this name
-	// TODO: Should this be an error instead?
-	if (Internal_FindBehaviourType(behaviourTypeName) != INVALID_BEHAVIOUR_TYPE)
+	new BehaviourTypeCreationError:error;
+	new BehaviourType:behaviourType = CreateBehaviourType(plugin, behaviourTypeName, error);
+
+	// throw errors, if we have any
+	switch (error)
 	{
-		return _:INVALID_BEHAVIOUR_TYPE;
+		case BehaviourTypeCreationError_AlreadyExists:
+		{
+			g_bGameModeInitializationFailed = true;
+			return ThrowNativeError(SP_ERROR_NATIVE, "Behaviour type (%s) already exists", behaviourTypeName);
+		}
+		case BehaviourTypeCreationError_GameModeNotInCreation:
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Cannot call Gamma_CreateBehaviourType outside Gamma_OnCreateGameMode");
+		}
 	}
 
-	// Else we create a new behaviour type with that name
-	return _:Internal_CreateBehaviourType(plugin, behaviourTypeName);
+	return _:behaviourType;
 }
 
-public Native_FindBehaviourType(Handle:plugin, numParams)
+public Native_Gamma_FindBehaviourType(Handle:plugin, numParams)
 {
 	new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
 	GetNativeString(1, behaviourTypeName, sizeof(behaviourTypeName));
 
-	return _:Internal_FindBehaviourType(behaviourTypeName);
+	return _:FindBehaviourType(behaviourTypeName);
 }
 
-public Native_BehaviourType_GetName(Handle:plugin, numParams)
+public Native_Gamma_GetBehaviourTypeName(Handle:plugin, numParams)
 {
 	new BehaviourType:behaviourType = BehaviourType:GetNativeCell(1);
 
@@ -614,19 +668,16 @@ public Native_BehaviourType_GetName(Handle:plugin, numParams)
 	SetNativeString(2, behaviourTypeName, GetNativeCell(3));
 }
 
-public Native_BehaviourType_AddRequirement(Handle:plugin, numParams)
+public Native_Gamma_AddBehaviourTypeRequirement(Handle:plugin, numParams)
 {
 	new BehaviourType:behaviourType = BehaviourType:GetNativeCell(1);
 	new String:functionName[SYMBOL_MAX_LENGTH];
 	GetNativeString(2, functionName, sizeof(functionName));
 
 	// Requirements can only be added before the behaviour type is added to a game mode
-	if (GetBehaviourTypeOwner(behaviourType) != INVALID_GAME_MODE)
+	if (g_hGameModeInitializingPlugin != plugin)
 	{
-		new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
-		GetBehaviourTypeName(behaviourType, behaviourTypeName, sizeof(behaviourTypeName));
-
-		return ThrowNativeError(SP_ERROR_NATIVE, "The behaviour type (%s) is already associated with a game mode", behaviourTypeName);
+		return ThrowNativeError(SP_ERROR_NATIVE, "Requirements to behaviours types can only be added in Gamma_OnCreateGameMode, by the owning plugin");
 	}
 
 	// If it's not added to a game mode add the requirement to the behaviour type
@@ -634,7 +685,7 @@ public Native_BehaviourType_AddRequirement(Handle:plugin, numParams)
 	return 1;
 }
 
-public Native_BehaviourType_GetAllBehaviours(Handle:plugin, numParams)
+public Native_Gamma_GetBehaviourTypeBehaviours(Handle:plugin, numParams)
 {
 	new BehaviourType:behaviourType = BehaviourType:GetNativeCell(1);
 	return _:CloneArray(GetBehaviourTypeBehaviours(behaviourType));
@@ -645,30 +696,42 @@ public Native_BehaviourType_GetAllBehaviours(Handle:plugin, numParams)
  *	BEHAVIOUR NATIVES
  *******************************************************************************/
 
-public Native_RegisterBehaviour(Handle:plugin, numParams)
+public Native_Gamma_RegisterBehaviour(Handle:plugin, numParams)
 {
 	new BehaviourType:behaviourType = BehaviourType:GetNativeCell(1);
 	new String:behaviourName[BEHAVIOUR_NAME_MAX_LENGTH];
 	GetNativeString(2, behaviourName, sizeof(behaviourName));
 
-	// A behaviour can only be registered if there's no behaviour with the same name and behaviour type
-	// TODO: Should this throw an error?
-	if (FindBehaviour(behaviourType, behaviourName) != INVALID_BEHAVIOUR)
+	new BehaviourCreationError:error;
+	new Behaviour:behaviour = CreateBehaviour(plugin, behaviourType, behaviourName, error);
+
+	// Throw error, if there's any
+	switch (error)
 	{
-		return _:INVALID_BEHAVIOUR;
+		case BehaviourCreationError_AlreadyExists:
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Behaviour of same type and name already exists");
+		}
+		case BehaviourCreationError_RequirementsNotMet:
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Plugin is not meeting the behaviour type requirements");
+		}
+		case BehaviourCreationError_PluginAlreadyHasForGameMode:
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Plugin already has a behaviour for same game mode");
+		}
 	}
 
-	// If it's unique, create the behaviour
-	return _:CreateBehaviour(plugin, behaviourType, behaviourName);
+	return _:behaviour;
 }
 
-public Native_Behaviour_GetType(Handle:plugin, numParams)
+public Native_Gamma_GetBehaviourType(Handle:plugin, numParams)
 {
 	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
 	return _:GetBehaviourType(behaviour);
 }
 
-public Native_Behaviour_GetName(Handle:plugin, numParams)
+public Native_Gamma_GetBehaviourName(Handle:plugin, numParams)
 {
 	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
 	new String:behaviourName[BEHAVIOUR_NAME_MAX_LENGTH];
@@ -677,12 +740,76 @@ public Native_Behaviour_GetName(Handle:plugin, numParams)
 	SetNativeString(2, behaviourName, GetNativeCell(3));
 }
 
+public Native_Gamma_AddBehaviourFunctionToForward(Handle:plugin, numParams)
+{
+	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
+
+	new length;
+	GetNativeStringLength(2, length);
+	new String:functionName[length+1];
+	GetNativeString(2, functionName, length+1);
+	
+	new Handle:fwd = Handle:GetNativeCell(3);
+
+	new Function:function = GetFunctionInBehaviour(behaviour, functionName);
+	if (function != INVALID_FUNCTION)
+	{
+		AddToForward(fwd, GetBehaviourPlugin(behaviour), function);
+		return true;
+	}
+	return false;
+}
+
+public Native_Gamma_RemoveBehaviourFunctionFromForward(Handle:plugin, numParams)
+{
+	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
+
+	new length;
+	GetNativeStringLength(2, length);
+	new String:functionName[length+1];
+	GetNativeString(2, functionName, length+1);
+	
+	new Handle:fwd = Handle:GetNativeCell(3);
+
+	new Function:function = GetFunctionInBehaviour(behaviour, functionName);
+	if (function != INVALID_FUNCTION)
+	{
+		RemoveFromForward(fwd, GetBehaviourPlugin(behaviour), function);
+		return true;
+	}
+	return false;
+}
+
+public Native_Gamma_SimpleBehaviourFunctionCall(Handle:plugin, numParams)
+{
+	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
+
+	new length;
+	GetNativeStringLength(2, length);
+	new String:functionName[length+1];
+	GetNativeString(2, functionName, length+1);
+	
+	new returnValue = GetNativeCell(3);
+
+	new Function:function = GetFunctionInBehaviour(behaviour, functionName);
+	if (function != INVALID_FUNCTION)
+	{
+		Call_StartFunction(GetBehaviourPlugin(behaviour), function);
+		for (new i = 4; i <= numParams; i++)
+		{
+			Call_PushCell(GetNativeCellRef(i));
+		}
+		Call_Finish(returnValue);
+	}
+	return returnValue;
+}
+
 
 /*******************************************************************************
  *	GAME MODE PROPERTIES NATIVES
  *******************************************************************************/
 
-public Native_GameMode_SetPropertyValue(Handle:plugin, numParams)
+public Native_Gamma_SetGameModeValue(Handle:plugin, numParams)
 {
 	new GameMode:gameMode = GameMode:GetNativeCell(1);
 
@@ -701,7 +828,7 @@ public Native_GameMode_SetPropertyValue(Handle:plugin, numParams)
 	SetTrieValue(Handle:gameMode, property, GetNativeCell(3));
 }
 
-public Native_GameMode_SetPropertyArray(Handle:plugin, numParams)
+public Native_Gamma_SetGameModeArray(Handle:plugin, numParams)
 {
 	new GameMode:gameMode = GameMode:GetNativeCell(1);
 
@@ -725,7 +852,7 @@ public Native_GameMode_SetPropertyArray(Handle:plugin, numParams)
 	SetTrieArray(Handle:gameMode, property, array, arrayLength);
 }
 
-public Native_GameMode_SetPropertyString(Handle:plugin, numParams)
+public Native_Gamma_SetGameModeString(Handle:plugin, numParams)
 {
 	new GameMode:gameMode = GameMode:GetNativeCell(1);
 
@@ -751,7 +878,7 @@ public Native_GameMode_SetPropertyString(Handle:plugin, numParams)
 	SetTrieString(Handle:gameMode, property, value);
 }
 
-public Native_GameMode_GetPropertyValue(Handle:plugin, numParams)
+public Native_Gamma_GetGameModeValue(Handle:plugin, numParams)
 {
 	new GameMode:gameMode = GameMode:GetNativeCell(1);
 
@@ -775,7 +902,7 @@ public Native_GameMode_GetPropertyValue(Handle:plugin, numParams)
 	return _:result;
 }
 
-public Native_GameMode_GetPropertyArray(Handle:plugin, numParams)
+public Native_Gamma_GetGameModeArray(Handle:plugin, numParams)
 {
 	new GameMode:gameMode = GameMode:GetNativeCell(1);
 
@@ -803,7 +930,7 @@ public Native_GameMode_GetPropertyArray(Handle:plugin, numParams)
 	return _:result;
 }
 
-public Native_GameMode_GetPropertyString(Handle:plugin, numParams)
+public Native_Gamma_GetGameModeString(Handle:plugin, numParams)
 {
 	new GameMode:gameMode = GameMode:GetNativeCell(1);
 
@@ -836,7 +963,7 @@ public Native_GameMode_GetPropertyString(Handle:plugin, numParams)
  *	BEHAVIOUR PROPERTIES NATIVES
  *******************************************************************************/
 
-public Native_Behaviour_SetPropertyValue(Handle:plugin, numParams)
+public Native_Gamma_SetBehaviourValue(Handle:plugin, numParams)
 {
 	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
 
@@ -855,7 +982,7 @@ public Native_Behaviour_SetPropertyValue(Handle:plugin, numParams)
 	SetTrieValue(Handle:behaviour, property, GetNativeCell(3));
 }
 
-public Native_Behaviour_SetPropertyArray(Handle:plugin, numParams)
+public Native_Gamma_SetBehaviourArray(Handle:plugin, numParams)
 {
 	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
 
@@ -879,7 +1006,7 @@ public Native_Behaviour_SetPropertyArray(Handle:plugin, numParams)
 	SetTrieArray(Handle:behaviour, property, array, arrayLength);
 }
 
-public Native_Behaviour_SetPropertyString(Handle:plugin, numParams)
+public Native_Gamma_SetBehaviourString(Handle:plugin, numParams)
 {
 	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
 
@@ -905,7 +1032,7 @@ public Native_Behaviour_SetPropertyString(Handle:plugin, numParams)
 	SetTrieString(Handle:behaviour, property, value);
 }
 
-public Native_Behaviour_GetPropertyValue(Handle:plugin, numParams)
+public Native_Gamma_GetBehaviourValue(Handle:plugin, numParams)
 {
 	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
 
@@ -929,7 +1056,7 @@ public Native_Behaviour_GetPropertyValue(Handle:plugin, numParams)
 	return _:result;
 }
 
-public Native_Behaviour_GetPropertyArray(Handle:plugin, numParams)
+public Native_Gamma_GetBehaviourArray(Handle:plugin, numParams)
 {
 	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
 
@@ -957,7 +1084,7 @@ public Native_Behaviour_GetPropertyArray(Handle:plugin, numParams)
 	return _:result;
 }
 
-public Native_Behaviour_GetPropertyString(Handle:plugin, numParams)
+public Native_Gamma_GetBehaviourString(Handle:plugin, numParams)
 {
 	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
 
@@ -998,8 +1125,22 @@ public Native_Behaviour_GetPropertyString(Handle:plugin, numParams)
  */
 
 // Creates a game mode from a plugin and name
-stock GameMode:CreateGameMode(Handle:plugin, const String:name[])
+stock GameMode:CreateGameMode(Handle:plugin, const String:name[], &GameModeCreationError:error)
 {
+	if (FindGameModeByPlugin(plugin) != INVALID_GAME_MODE)
+	{
+		// The plugin has already registered a game mode
+		error = GameModeCreationError_PluginAlreadyHasGameMode;
+		return INVALID_GAME_MODE;
+	}
+
+	if (FindGameMode(name) != INVALID_GAME_MODE)
+	{
+		// Another existing game mode with this name
+		error = GameModeCreationError_AlreadyExists;
+		return INVALID_GAME_MODE;
+	}
+
 	// Create the trie to hold the data about the game mode
 	new Handle:gameMode = CreateTrie();
 
@@ -1011,11 +1152,39 @@ stock GameMode:CreateGameMode(Handle:plugin, const String:name[])
 	PushArrayCell(g_hArrayGameModes, gameMode);
 	SetTrieValue(g_hTrieGameModes, name, gameMode);
 
-	// Finally notify the game mode and other plugins about it's creation
-	SimpleOptionalPluginCall(plugin, "GameMode_OnCreate");
-	SimpleForwardCallOneCell(g_hGlobalGameMode_OnCreated, gameMode);
+	// Make the game mode initialize it's BehaviourTypes, if it needs to, also it's only valid during this call!
+	g_hGameModeInitializing = GameMode:gameMode;
+	g_hGameModeInitializingPlugin = plugin;
+	g_bGameModeInitializationFailed = false;
 
+	SimpleOptionalPluginCall(plugin, "Gamma_OnCreateGameMode");
+
+	g_hGameModeInitializing = INVALID_GAME_MODE;
+	g_hGameModeInitializingPlugin = INVALID_HANDLE;
+	if (g_bGameModeInitializationFailed)
+	{
+		// Creation failed, don't forget to destroy the game mode
+		error = GameModeCreationError_CreationFailed;
+		DestroyGameMode(GameMode:gameMode);
+		return INVALID_GAME_MODE;
+	}
+
+	// Finally notify other plugins about it's creation
+	SimpleForwardCallOneParam(g_hGlobal_OnGameModeCreated, gameMode);
+
+	error = GameModeCreationError_None;
 	return GameMode:gameMode;
+}
+
+// Finds a game mode from a name
+stock GameMode:FindGameMode(const String:name[])
+{
+	new GameMode:gameMode;
+	if (GetTrieValue(g_hTrieGameModes, name, gameMode))
+	{
+		return gameMode;
+	}
+	return INVALID_GAME_MODE;
 }
 
 // Finds a game mode from a plugin
@@ -1029,17 +1198,6 @@ stock GameMode:FindGameModeByPlugin(Handle:plugin)
 		{
 			return gameMode;
 		}
-	}
-	return INVALID_GAME_MODE;
-}
-
-// Finds a game mode from a name
-stock GameMode:FindGameMode(const String:name[])
-{
-	new GameMode:gameMode;
-	if (GetTrieValue(g_hTrieGameModes, name, gameMode))
-	{
-		return gameMode;
 	}
 	return INVALID_GAME_MODE;
 }
@@ -1082,7 +1240,6 @@ stock AddBehaviourType(GameMode:gameMode, BehaviourType:behaviourType)
 	{
 		new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
 		PushArrayCell(behaviourTypes, behaviourType);
-		SetBehaviourTypeOwner(behaviourType, gameMode);
 	}
 }
 
@@ -1101,8 +1258,8 @@ stock Handle:GetGameModeBehaviourTypes(GameMode:gameMode)
 stock DestroyGameMode(GameMode:gameMode)
 {
 	// Call the Destroy listeners
-	SimpleOptionalPluginCall(GetGameModePlugin(gameMode), "GameMode_OnDestroy");
-	SimpleForwardCallOneCell(g_hGlobalGameMode_OnDestroyed, gameMode);
+	SimpleOptionalPluginCall(GetGameModePlugin(gameMode), "Gamma_OnDestroyGameMode");
+	SimpleForwardCallOneParam(g_hGlobal_OnGameModeDestroyed, gameMode);
 
 	// Remove from global array and trie
 	RemoveFromArray(g_hArrayGameModes, FindValueInArray(g_hArrayGameModes, gameMode));
@@ -1140,12 +1297,19 @@ stock DestroyGameMode(GameMode:gameMode)
  */
 
 // Creates a behaviour type from a plugin and name
-stock BehaviourType:Internal_CreateBehaviourType(Handle:plugin, String:name[])
+stock BehaviourType:CreateBehaviourType(Handle:plugin, String:name[], &BehaviourTypeCreationError:error)
 {
-	// TODO: I need a better way of doing this - possibly I should make a native
-	// which takes a game mode and a behaviour type name or something
-	if (FindGameModeByPlugin(plugin) == INVALID_GAME_MODE)
+	// Only valid to create behaviour types when a game mode is initializing, also only by the same plugin
+	if (g_hGameModeInitializingPlugin != plugin)
 	{
+		error = BehaviourTypeCreationError_GameModeNotInCreation;
+		return INVALID_BEHAVIOUR_TYPE;
+	}
+
+	// If we find a behaviour type with the same name, we can't use this name
+	if (FindBehaviourType(name) != INVALID_BEHAVIOUR_TYPE)
+	{
+		error = BehaviourTypeCreationError_AlreadyExists;
 		return INVALID_BEHAVIOUR_TYPE;
 	}
 
@@ -1153,7 +1317,7 @@ stock BehaviourType:Internal_CreateBehaviourType(Handle:plugin, String:name[])
 	new Handle:behaviourType = CreateTrie();
 
 	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_PLUGIN, plugin);
-	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_OWNER, INVALID_GAME_MODE);
+	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_OWNER, g_hGameModeInitializing);
 	SetTrieString(behaviourType, BEHAVIOUR_TYPE_NAME, name);
 	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_REQUIREMENTS, CreateArray());
 	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_BEHAVIOURS, CreateArray());
@@ -1162,11 +1326,15 @@ stock BehaviourType:Internal_CreateBehaviourType(Handle:plugin, String:name[])
 	PushArrayCell(g_hArrayBehaviourTypes, behaviourType);
 	SetTrieValue(g_hTrieBehaviourTypes, name, behaviourType);
 
+	// Add behaviour type to game mode
+	AddBehaviourType(g_hGameModeInitializing, BehaviourType:behaviourType);
+
+	error = BehaviourTypeCreationError_None;
 	return BehaviourType:behaviourType;
 }
 
 // Searches for a behaviour type from a name
-stock BehaviourType:Internal_FindBehaviourType(String:name[])
+stock BehaviourType:FindBehaviourType(String:name[])
 {
 	new BehaviourType:behaviourType;
 	if (GetTrieValue(g_hTrieBehaviourTypes, name, behaviourType))
@@ -1242,7 +1410,8 @@ stock Handle:GetBehaviourTypeRequirements(BehaviourType:behaviourType)
 // Adds a function requirement to the behaviour, but only if there isn't an owner yet
 stock bool:AddBehaviourTypeRequirement(BehaviourType:behaviourType, const String:requirement[])
 {
-	if (GetBehaviourTypeOwner(behaviourType) == INVALID_GAME_MODE)
+	// Only able to add requirements while initilizing the game mode - and only to a behaviour of that game mode
+	if (GetBehaviourTypeOwner(behaviourType) == g_hGameModeInitializing /*INVALID_GAME_MODE*/)
 	{
 		PushArrayString(GetBehaviourTypeRequirements(behaviourType), requirement);
 		return true;
@@ -1323,11 +1492,27 @@ stock DestroyBehaviourType(BehaviourType:behaviourType)
  */
 
  // Creates a behaviour from a plugin, type and name
-stock Behaviour:CreateBehaviour(Handle:plugin, BehaviourType:type, const String:name[])
+stock Behaviour:CreateBehaviour(Handle:plugin, BehaviourType:type, const String:name[], &BehaviourCreationError:error)
 {
+	// A behaviour can only be registered if there's no behaviour with the same name and behaviour type
+	if (FindBehaviour(type, name) != INVALID_BEHAVIOUR)
+	{
+		error = BehaviourCreationError_AlreadyExists;
+		return INVALID_BEHAVIOUR;
+	}
+
 	// If the plugin doesn't match the requirements of the behaviour type return INVALID_BEHAVIOUR
 	if (!BehaviourTypePluginCheck(type, plugin))
 	{
+		error = BehaviourCreationError_RequirementsNotMet;
+		return INVALID_BEHAVIOUR;
+	}
+
+	// If the game mode already has a behaviour from this plugin
+	new GameMode:behaviourTypeOwner = GetBehaviourTypeOwner(type);
+	if (FindBehaviourInGameModeByPlugin(behaviourTypeOwner, plugin) != INVALID_BEHAVIOUR)
+	{
+		error = BehaviourCreationError_PluginAlreadyHasForGameMode;
 		return INVALID_BEHAVIOUR;
 	}
 
@@ -1346,10 +1531,11 @@ stock Behaviour:CreateBehaviour(Handle:plugin, BehaviourType:type, const String:
 	GetBehaviourFullNameEx(type, name, behaviourFullName, sizeof(behaviourFullName));
 	SetTrieValue(g_hTrieBehaviours, behaviourFullName, behaviour);
 
+	error = BehaviourCreationError_None;
 	return Behaviour:behaviour;
 }
 
-// Searches for a behaviour of behaviour type
+// Searches for a behaviour of behaviour type by name
 stock Behaviour:FindBehaviour(BehaviourType:behaviourType, const String:name[])
 {
 	new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
@@ -1359,6 +1545,37 @@ stock Behaviour:FindBehaviour(BehaviourType:behaviourType, const String:name[])
 	if (GetTrieValue(g_hTrieBehaviours, behaviourFullName, behaviour))
 	{
 		return behaviour;
+	}
+	return INVALID_BEHAVIOUR;
+}
+
+// Searches for a behaviour of behaviour type by plugin
+stock Behaviour:FindBehaviourByPlugin(BehaviourType:behaviourType, Handle:plugin)
+{
+	new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
+	DECREASING_LOOP(i,behaviours)
+	{
+		new Behaviour:behaviour = GetArrayBehaviour(behaviours, i);
+		if (GetBehaviourPlugin(behaviour) == plugin)
+		{
+			return behaviour;
+		}
+	}
+	return INVALID_BEHAVIOUR;
+}
+
+// Searches for a behaviour in a game mode by plugin
+stock Behaviour:FindBehaviourInGameModeByPlugin(GameMode:gameMode, Handle:plugin)
+{
+	new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
+	DECREASING_LOOP(i,behaviourTypes)
+	{
+		new BehaviourType:behaviourType = GetArrayBehaviourType(behaviourTypes, i);
+		new Behaviour:behaviour = FindBehaviourByPlugin(behaviourType, plugin);
+		if (behaviour != INVALID_BEHAVIOUR)
+		{
+			return behaviour;
+		}
 	}
 	return INVALID_BEHAVIOUR;
 }
@@ -1435,10 +1652,10 @@ stock BehaviourPossessPlayer(Behaviour:behaviour, client)
 		// Add the behaviour to the clients behaviour list
 		PushArrayCell(g_hClientArrayBehaviours[client], behaviour);
 
-		// TODO: Make some sort of dynamic hook that is easily usable in the behviours instead?
+		// TODO: Make a stock for dhooks that is easily usable in the behviours instead?
 		// Add the OnPlayerRunCmd in the behaviour if needed to the clients private forward
 		new Handle:plugin = GetBehaviourPlugin(behaviour);
-		new Function:onPlayerRunCmd = GetBehaviourOnPlayerRunCmd(behaviour);
+		new Function:onPlayerRunCmd = GetFunctionInBehaviour(behaviour, "Gamma_OnBehaviourPlayerRunCmd");
 		if (onPlayerRunCmd != INVALID_FUNCTION)
 		{
 			AddToForward(g_hClientPrivateBehaviourPlayerRunCmd[client], plugin, onPlayerRunCmd);
@@ -1450,8 +1667,8 @@ stock BehaviourPossessPlayer(Behaviour:behaviour, client)
 		PushArrayCell(possessedPlayers, client);
 
 		// Then notify the behaviour and other plugins that the client has been possessed
-		SimpleOptionalPluginCallOneParam(plugin, "Behaviour_OnPossessing", client);
-		SimpleForwardCallTwoCells(g_hGlobalBehaviour_OnClientPossessed, client, behaviour);
+		SimpleOptionalPluginCallOneParam(plugin, "Gamma_OnBehaviourPossessingClient", client);
+		SimpleForwardCallTwoParams(g_hGlobal_OnBehaviourPossessedClient, client, behaviour);
 	}
 }
 
@@ -1464,10 +1681,10 @@ stock BehaviourReleasePlayer(Behaviour:behaviour, client)
 	{
 		RemoveFromArray(g_hClientArrayBehaviours[client], index);
 
-		// TODO: Make some sort of dynamic hook that is easily usable in the behviours instead?
+		// TODO: Make a stock for dhooks that is easily usable in the behviours instead?
 		// Remove the OnPlayerRunCmd in the behaviour if needed from the clients private forward
 		new Handle:plugin = GetBehaviourPlugin(behaviour);
-		new Function:onPlayerRunCmd = GetBehaviourOnPlayerRunCmd(behaviour);
+		new Function:onPlayerRunCmd = GetFunctionInBehaviour(behaviour, "Gamma_OnBehaviourPlayerRunCmd");
 		if (onPlayerRunCmd != INVALID_FUNCTION)
 		{
 			RemoveFromForward(g_hClientPrivateBehaviourPlayerRunCmd[client], plugin, onPlayerRunCmd);
@@ -1479,8 +1696,8 @@ stock BehaviourReleasePlayer(Behaviour:behaviour, client)
 		RemoveFromArray(possessedPlayers, FindValueInArray(possessedPlayers, client));
 
 		// Then notify the behaviour and other plugins that the client has been released
-		SimpleOptionalPluginCallOneParam(plugin, "Behaviour_OnReleasing", client);
-		SimpleForwardCallTwoCells(g_hGlobalBehaviour_OnClientReleased, client, behaviour);
+		SimpleOptionalPluginCallOneParam(plugin, "Gamma_OnBehaviourReleasingClient", client);
+		SimpleForwardCallTwoParams(g_hGlobal_OnBehaviourReleasedClient, client, behaviour);
 	}
 }
 
@@ -1496,11 +1713,11 @@ stock Handle:GetBehaviourPossessedPlayers(Behaviour:behaviour)
 	return INVALID_HANDLE;
 }
 
-// Gets the Behaviour_OnPlayerRunCmd function id from the behaviour, if it has it implemented
-stock Function:GetBehaviourOnPlayerRunCmd(Behaviour:behaviour)
+// Gets a function by name in the behaviour
+stock Function:GetFunctionInBehaviour(Behaviour:behaviour, const String:function[])
 {
 	new Handle:plugin = GetBehaviourPlugin(behaviour);
-	return GetFunctionByName(plugin, "Behaviour_OnPlayerRunCmd");
+	return GetFunctionByName(plugin, function);
 }
 
 // Destroys the behaviour, freeing all it's resources
@@ -1531,56 +1748,54 @@ stock DestroyBehaviour(Behaviour:behaviour)
  *******************************************************************************/
 
 // Calls an optional function in the targetted plugin, if it exists, without parameters
-stock SimpleOptionalPluginCallReturnCell(Handle:plugin, const String:function[], any:defaultValue)
+stock SimpleOptionalPluginCall(Handle:plugin, const String:function[], any:defaultValue=0, &error=0)
 {
 	new Function:func = GetFunctionByName(plugin, function);
 	if(func != INVALID_FUNCTION)
 	{
 		new result;
 		Call_StartFunction(plugin, func);
-		Call_Finish(result);
+		error = Call_Finish(result);
 		return result;
 	}
+	error = SP_ERROR_NONE;
 	return defaultValue;
 }
 
-// Calls an optional function in the targetted plugin, if it exists, without parameters
-stock SimpleOptionalPluginCall(Handle:plugin, const String:function[])
-{
-	new Function:func = GetFunctionByName(plugin, function);
-	if(func != INVALID_FUNCTION)
-	{
-		Call_StartFunction(plugin, func);
-		Call_Finish();
-	}
-}
-
 // Calls an optional function in the targetted plugin, if it exists, with 1 cell parameter
-stock SimpleOptionalPluginCallOneParam(Handle:plugin, const String:function[], any:param)
+stock SimpleOptionalPluginCallOneParam(Handle:plugin, const String:function[], any:param, any:defaultValue=0, &error=0)
 {
 	new Function:func = GetFunctionByName(plugin, function);
 	if(func != INVALID_FUNCTION)
 	{
+		new result;
 		Call_StartFunction(plugin, func);
 		Call_PushCell(param);
-		Call_Finish();
+		error = Call_Finish(result);
+		return result;
 	}
+	error = SP_ERROR_NONE;
+	return defaultValue;
 }
 
 // Calls a forward with a single cell parameter
-stock SimpleForwardCallOneCell(Handle:fwd, any:param)
+stock SimpleForwardCallOneParam(Handle:fwd, any:param, &error=0)
 {
+	new result;
 	Call_StartForward(fwd);
 	Call_PushCell(param);
-	Call_Finish();
+	error = Call_Finish(result);
+	return result;
 }
 
 // Calls a forward with two cell parameters
-stock SimpleForwardCallTwoCells(Handle:fwd, any:param1, any:param2)
+stock SimpleForwardCallTwoParams(Handle:fwd, any:param1, any:param2, &error=0)
 {
+	new result;
 	Call_StartForward(fwd);
 	Call_PushCell(param1);
 	Call_PushCell(param2);
-	Call_Finish();
+	error = Call_Finish(result);
+	return result;
 }
 
