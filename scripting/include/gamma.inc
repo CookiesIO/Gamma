@@ -256,7 +256,7 @@ native Handle:Gamma_GetBehaviourTypeBehaviours(BehaviourType:behaviourType);
  *	@return					Behaviour identifier
  *	@error					Behaviour with same name exists or plugin has already registered a behaviour for same game mode
  */
-native Behaviour:Gamma_RegisterBehaviour(BehaviourType:behaviourType, const string:behaviourName[]);
+native Behaviour:Gamma_RegisterBehaviour(BehaviourType:behaviourType, const String:behaviourName[]);
 
 /**
  *	Gets the behaviour type of a behaviour
