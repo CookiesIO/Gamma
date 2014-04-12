@@ -140,6 +140,26 @@ enum BehaviourCreationError
 // Usage: DECREASING_LOOP(indexer,adtarray)
 #define DECREASING_LOOP(%1,%2) for (new %1 = GetArraySize(%2)-1; %1 >= 0; %1--)
 
+#define DEBUG
+
+#if defined DEBUG
+#define DEBUG_PRINT(%1) PrintToServer(%1)
+#define DEBUG_PRINT1(%1,%2) PrintToServer(%1,%2)
+#define DEBUG_PRINT2(%1,%2,%3) PrintToServer(%1,%2,%3)
+#define DEBUG_PRINT3(%1,%2,%3,%4) PrintToServer(%1,%2,%3,%4)
+#define DEBUG_PRINT4(%1,%2,%3,%4,%5) PrintToServer(%1,%2,%3,%4,%5)
+#define DEBUG_PRINT5(%1,%2,%3,%4,%5,%6) PrintToServer(%1,%2,%3,%4,%5,%6)
+#define DEBUG_PRINT6(%1,%2,%3,%4,%5,%6,%7) PrintToServer(%1,%2,%3,%4,%5,%6,%7)
+#else
+#define BEBUG_PRINT(%1)
+#define DEBUG_PRINT1(%1,%2)
+#define DEBUG_PRINT2(%1,%2,%3)
+#define DEBUG_PRINT3(%1,%2,%3,%4)
+#define DEBUG_PRINT4(%1,%2,%3,%4,%5)
+#define DEBUG_PRINT5(%1,%2,%3,%4,%5,%6)
+#define DEBUG_PRINT6(%1,%2,%3,%4,%5,%6,%7)
+#endif
+
 
 
 /*******************************************************************************
@@ -159,8 +179,8 @@ new Handle:g_hArrayBehaviours;				// List<Behaviour>
 new Handle:g_hTrieBehaviours;				// Map<BehaviourType.Name+':'+Behaviour.Name, Behaviour>
 
 // Client data
-new Handle:g_hClientArrayBehaviours[MAXPLAYERS+1];					// List<Behaviour>[MAXPLAYERS+1]
-new Handle:g_hClientPrivateBehaviourPlayerRunCmd[MAXPLAYERS+1]; 	// Forward[MAXPLAYERS+1]
+new Handle:g_hPlayerArrayBehaviours[MAXPLAYERS+1];					// List<Behaviour>[MAXPLAYERS+1]
+new Handle:g_hPlayerPrivateBehaviourPlayerRunCmd[MAXPLAYERS+1]; 	// Forward[MAXPLAYERS+1]
 new bool:g_bClientHasPrivateBehaviourPlayerRunCmd[MAXPLAYERS+1];	// bool[MAXPLAYERS+1]
 
 // Game mode creation variables
@@ -260,6 +280,7 @@ public OnPluginStart()
 
 	// Behaviour data
 	g_hArrayBehaviours = CreateArray();
+	g_hTrieBehaviours = CreateTrie();
 
 	// Global forwards
 	g_hGlobal_OnGameModeCreated = CreateGlobalForward("Gamma_OnGameModeCreated", ET_Ignore, Param_Cell);
@@ -289,6 +310,14 @@ public OnPluginStart()
 	// Also, these events can be changed to fit a specific game
 	HookEvent("teamplay_round_start", Event_RoundStart); // <- This should be replaced by a hook onto GameRules::RoundRespawn
 	HookEvent("teamplay_round_win", Event_RoundEnd); // <- Could be placed in GameRules::RoundRespawn as well, at the top but there are other options as well
+
+	for (new i = 1; i <= MaxClients; i++)
+	{
+		if (IsClientInGame(i))
+		{
+			OnClientPutInServer(i);
+		}
+	}
 }
 
 public OnPluginEnd()
@@ -320,18 +349,20 @@ public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast)
 
 public OnClientPutInServer(client)
 {
-	g_hClientArrayBehaviours[client] = CreateArray();
-	g_hClientPrivateBehaviourPlayerRunCmd[client] = CreateForward(ET_Hook, Param_Cell, Param_CellByRef, Param_CellByRef, Param_Array, Param_Array, Param_CellByRef, Param_CellByRef, Param_CellByRef, Param_CellByRef, Param_CellByRef, Param_Array);
+	g_hPlayerArrayBehaviours[client] = CreateArray();
+	g_hPlayerPrivateBehaviourPlayerRunCmd[client] = CreateForward(ET_Hook, Param_Cell, Param_CellByRef, Param_CellByRef, Param_Array, Param_Array, Param_CellByRef, Param_CellByRef, Param_CellByRef, Param_CellByRef, Param_CellByRef, Param_Array);
 	g_bClientHasPrivateBehaviourPlayerRunCmd[client] = false;
 }
 
 public OnClientDisconnect(client)
 {
-	CloseHandle(g_hClientArrayBehaviours[client]);
-	CloseHandle(g_hClientPrivateBehaviourPlayerRunCmd[client]);
+	ReleasePlayerFromBehaviours(client);
 
-	g_hClientArrayBehaviours[client] = INVALID_HANDLE;
-	g_hClientPrivateBehaviourPlayerRunCmd[client] = INVALID_HANDLE;
+	CloseHandle(g_hPlayerArrayBehaviours[client]);
+	CloseHandle(g_hPlayerPrivateBehaviourPlayerRunCmd[client]);
+
+	g_hPlayerArrayBehaviours[client] = INVALID_HANDLE;
+	g_hPlayerPrivateBehaviourPlayerRunCmd[client] = INVALID_HANDLE;
 	g_bClientHasPrivateBehaviourPlayerRunCmd[client] = false;
 }
 
@@ -345,7 +376,7 @@ public Action:OnPlayerRunCmd(client, &buttons, &impulse, Float:vel[3], Float:ang
 
 	if (g_bClientHasPrivateBehaviourPlayerRunCmd[client])
 	{
-		Call_StartForward(g_hClientPrivateBehaviourPlayerRunCmd[client]);
+		Call_StartForward(g_hPlayerPrivateBehaviourPlayerRunCmd[client]);
 		Call_PushCell(client);
 		Call_PushCellRef(buttons);
 		Call_PushCellRef(impulse);
@@ -375,6 +406,8 @@ stock StopGameMode(bool:forceful)
 {
 	if (g_hCurrentGameMode != INVALID_GAME_MODE)
 	{
+		DEBUG_PRINT1("Gamma:StopGameMode(forceful=%d)", forceful);
+
 		SimpleOptionalPluginCall(g_hGameModePlugin, "Gamma_OnGameModeEnd");
 		SimpleForwardCallOneParam(g_hGlobal_OnGameModeEnded, g_hCurrentGameMode);
 
@@ -383,11 +416,7 @@ stock StopGameMode(bool:forceful)
 		{
 			if (IsClientInGame(i))
 			{
-				new Handle:behaviours = g_hClientArrayBehaviours[i];
-				DECREASING_LOOP(j,behaviours)
-				{
-					BehaviourReleasePlayer(GetArrayBehaviour(behaviours, j), i);
-				}
+				ReleasePlayerFromBehaviours(i);
 			}
 		}
 
@@ -407,6 +436,8 @@ stock ChooseAndStartGameMode()
 {
 	if (GetConVarBool(g_hCvarEnabled))
 	{
+		DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : enabled");
+
 		new String:gameModeName[GAME_MODE_NAME_MAX_LENGTH];
 		GetConVarString(g_hCvarGameMode, gameModeName, sizeof(gameModeName));
 
@@ -417,16 +448,19 @@ stock ChooseAndStartGameMode()
 			// Strictly by Cvar
 			case 1:
 			{
+				DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : Strictly by Cvar");
 				AttemptStart(FindGameMode(gameModeName));
 			}
 			// First game mode able to start
 			case 2:
 			{
+				DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : First game mode able to start");
 				AttemptStartAny();
 			}
 			// Try cvar, if it fails then first to start
 			case 3:
 			{
+				DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : Try by Cvar then any");
 				if (!AttemptStart(FindGameMode(gameModeName)))
 				{
 					AttemptStartAny();
@@ -438,6 +472,8 @@ stock ChooseAndStartGameMode()
 
 stock AttemptStartAny()
 {
+	DEBUG_PRINT("Gamma:AttemptStartAny()");
+
 	new count = GetArraySize(g_hArrayGameModes);
 	for (new i = 0; i < count; i++)
 	{
@@ -453,11 +489,22 @@ stock bool:AttemptStart(GameMode:gameMode)
 {
 	if (gameMode != INVALID_GAME_MODE)
 	{
+		#if defined DEBUG
+
+		new String:gameModeName[GAME_MODE_NAME_MAX_LENGTH];
+		GetGameModeName(gameMode, gameModeName, sizeof(gameModeName));
+
+		#endif
+
+		DEBUG_PRINT1("Gamma:AttemptStart(\"%s\")", gameModeName);
+
 		new Handle:gameModePlugin = GetGameModePlugin(gameMode);
 
 		new bool:canStart = bool:SimpleOptionalPluginCall(gameModePlugin, "Gamma_IsGameModeAbleToStartRequest", true);
 		if (canStart)
 		{
+			DEBUG_PRINT1("Gamma:AttemptStart(\"%s\") : Able to start", gameModeName);
+
 			g_hCurrentGameMode = gameMode;
 			g_hGameModePlugin = gameModePlugin;
 
@@ -467,10 +514,26 @@ stock bool:AttemptStart(GameMode:gameMode)
 			g_bIsActive = true;
 			return true;
 		}
+
+		DEBUG_PRINT1("Gamma:AttemptStart(\"%s\") : Unable to start", gameModeName);
 	}
 	return false;
 }
 
+
+/*******************************************************************************
+ *	ADDITIONAL HELPERS
+ *******************************************************************************/
+
+ // Frees a player from all his behaviours
+stock ReleasePlayerFromBehaviours(client)
+{
+	new Handle:behaviours = g_hPlayerArrayBehaviours[client];
+	DECREASING_LOOP(j,behaviours)
+	{
+		BehaviourReleasePlayer(GetArrayBehaviour(behaviours, j), client);
+	}
+}
 
 
 
@@ -480,22 +543,18 @@ stock bool:AttemptStart(GameMode:gameMode)
 
 public Native__GAMMA_PluginUnloading(Handle:plugin, numParams)
 {
-	// Look through all game mode and destroy the game mode if the plugin created it
-	DECREASING_LOOP(i,g_hArrayGameModes)
+	DEBUG_PRINT("native __GAMMA_PluginUnloading() : Start");
+
+	// Since only a single game mode can be created by 1 plugin, find it
+	new GameMode:gameMode = FindGameModeByPlugin(plugin);
+	if (gameMode != INVALID_GAME_MODE)
 	{
-		new GameMode:gameMode = GetArrayGameMode(g_hArrayGameModes, i);
-		if (GetGameModePlugin(gameMode) == plugin)
-		{
-			// Stop the game mode if it's running and unloading (oh the horrors D:)
-			if (gameMode == g_hCurrentGameMode)
-			{
-				StopGameMode(true);
-			}
-			DestroyGameMode(gameMode);
-		}
+		// And destroy it
+		DestroyGameMode(gameMode);
 	}
 
 	// It's not neccesary to look through BehaviourTypes since they're created by the game mode plugin
+	// And will be destroyed when the game mode gets destroyed
 
 	// Look through all behaviours and destroy if the behaviour is created by the plugin
 	DECREASING_LOOP(i,g_hArrayBehaviours)
@@ -506,6 +565,8 @@ public Native__GAMMA_PluginUnloading(Handle:plugin, numParams)
 			DestroyBehaviour(behaviour);
 		}
 	}
+
+	DEBUG_PRINT("native __GAMMA_PluginUnloading() : End");
 }
 
 
@@ -517,7 +578,7 @@ public Native__GAMMA_PluginUnloading(Handle:plugin, numParams)
 
 public Native_Gamma_GetAllGameModes(Handle:plugin, numParams)
 {
-	return _:CloneArray(g_hArrayGameModes);
+	return _:CloneHandle(g_hArrayGameModes);
 }
 
 public Native_Gamma_GetCurrentGameMode(Handle:plugin, numParams)
@@ -573,7 +634,7 @@ public Native_Gamma_GetGameModeBehaviourTypes(Handle:plugin, numParams)
 {
 	new GameMode:gameMode = GameMode:GetNativeCell(1);
 	new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
-	return _:CloneArray(behaviourTypes);
+	return _:CloneHandle(behaviourTypes);
 }
 
 public Native_Gamma_GiveBehaviour(Handle:plugin, numParams)
@@ -688,7 +749,7 @@ public Native_Gamma_AddBehaviourTypeRequirement(Handle:plugin, numParams)
 public Native_Gamma_GetBehaviourTypeBehaviours(Handle:plugin, numParams)
 {
 	new BehaviourType:behaviourType = BehaviourType:GetNativeCell(1);
-	return _:CloneArray(GetBehaviourTypeBehaviours(behaviourType));
+	return _:CloneHandle(GetBehaviourTypeBehaviours(behaviourType));
 }
 
 
@@ -1127,6 +1188,8 @@ public Native_Gamma_GetBehaviourString(Handle:plugin, numParams)
 // Creates a game mode from a plugin and name
 stock GameMode:CreateGameMode(Handle:plugin, const String:name[], &GameModeCreationError:error)
 {
+	DEBUG_PRINT2("Gamma:CreateGameMode(%X, \"%s\")", plugin, name);
+
 	if (FindGameModeByPlugin(plugin) != INVALID_GAME_MODE)
 	{
 		// The plugin has already registered a game mode
@@ -1163,11 +1226,15 @@ stock GameMode:CreateGameMode(Handle:plugin, const String:name[], &GameModeCreat
 	g_hGameModeInitializingPlugin = INVALID_HANDLE;
 	if (g_bGameModeInitializationFailed)
 	{
+		DEBUG_PRINT2("Gamma:CreateGameMode(%X, \"%s\") : Initializing failed", plugin, name);
+
 		// Creation failed, don't forget to destroy the game mode
 		error = GameModeCreationError_CreationFailed;
 		DestroyGameMode(GameMode:gameMode);
 		return INVALID_GAME_MODE;
 	}
+
+	DEBUG_PRINT2("Gamma:CreateGameMode(%X, \"%s\") : Initializing success", plugin, name);
 
 	// Finally notify other plugins about it's creation
 	SimpleForwardCallOneParam(g_hGlobal_OnGameModeCreated, gameMode);
@@ -1235,8 +1302,8 @@ stock bool:GetGameModeName(GameMode:gameMode, String:buffer[], maxlen)
 // Adds a behaviour type to a game mode
 stock AddBehaviourType(GameMode:gameMode, BehaviourType:behaviourType)
 {
-	// First we make sure that the behaviour type doesn't have an owner before adding it
-	if (GetBehaviourTypeOwner(behaviourType) == INVALID_GAME_MODE)
+	// First we make sure that the behaviour type owner is the game mode (a little redundant, but better safe than sorry!)
+	if (GetBehaviourTypeOwner(behaviourType) == gameMode)
 	{
 		new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
 		PushArrayCell(behaviourTypes, behaviourType);
@@ -1257,24 +1324,34 @@ stock Handle:GetGameModeBehaviourTypes(GameMode:gameMode)
 
 stock DestroyGameMode(GameMode:gameMode)
 {
+	new String:name[GAME_MODE_NAME_MAX_LENGTH];
+	GetGameModeName(gameMode, name, sizeof(name));
+
+	DEBUG_PRINT1("Gamma:DestroyGameMode(\"%s\")", name);
+
+	// If the game mode is currently running, stop it forcefully
+	if (gameMode == g_hCurrentGameMode)
+	{
+		StopGameMode(true);
+	}
+
 	// Call the Destroy listeners
 	SimpleOptionalPluginCall(GetGameModePlugin(gameMode), "Gamma_OnDestroyGameMode");
 	SimpleForwardCallOneParam(g_hGlobal_OnGameModeDestroyed, gameMode);
 
 	// Remove from global array and trie
 	RemoveFromArray(g_hArrayGameModes, FindValueInArray(g_hArrayGameModes, gameMode));
-
-	new String:name[GAME_MODE_NAME_MAX_LENGTH];
-	GetGameModeName(gameMode, name, sizeof(name));
 	RemoveFromTrie(g_hTrieGameModes, name);
 
 	// Destroy all associated behaviour types
+	DEBUG_PRINT1("Gamma:DestroyGameMode(\"%s\") : Destroy Behaviour Types", name);
 	new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
 	DECREASING_LOOP(i,behaviourTypes)
 	{
 		new BehaviourType:behaviourType = GetArrayBehaviourType(behaviourTypes, i);
 		DestroyBehaviourType(behaviourType);
 	}
+	DEBUG_PRINT1("Gamma:DestroyGameMode(\"%s\") : Destroyed Behaviour Types", name);
 
 	// Lastly close the behaviour type array and the game mode trie
 	CloseHandle(behaviourTypes);
@@ -1299,6 +1376,8 @@ stock DestroyGameMode(GameMode:gameMode)
 // Creates a behaviour type from a plugin and name
 stock BehaviourType:CreateBehaviourType(Handle:plugin, String:name[], &BehaviourTypeCreationError:error)
 {
+	DEBUG_PRINT2("Gamma:CreateBehaviourType(%X, \"%s\")", plugin, name);
+
 	// Only valid to create behaviour types when a game mode is initializing, also only by the same plugin
 	if (g_hGameModeInitializingPlugin != plugin)
 	{
@@ -1319,7 +1398,7 @@ stock BehaviourType:CreateBehaviourType(Handle:plugin, String:name[], &Behaviour
 	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_PLUGIN, plugin);
 	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_OWNER, g_hGameModeInitializing);
 	SetTrieString(behaviourType, BEHAVIOUR_TYPE_NAME, name);
-	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_REQUIREMENTS, CreateArray());
+	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_REQUIREMENTS, CreateArray(ByteCountToCells(SYMBOL_MAX_LENGTH)));
 	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_BEHAVIOURS, CreateArray());
 
 	// Then push the new behaviour type to the global array and trie
@@ -1374,15 +1453,6 @@ stock GameMode:GetBehaviourTypeOwner(BehaviourType:behaviourType)
 	return INVALID_GAME_MODE;
 }
 
-// Sets the owner game mode of the behaviour type if it doesn't have one yet
-stock SetBehaviourTypeOwner(BehaviourType:behaviourType, GameMode:owner)
-{
-	if (GetBehaviourTypeOwner(behaviourType) == INVALID_GAME_MODE)
-	{
-		SetTrieValue(Handle:behaviourType, BEHAVIOUR_TYPE_OWNER, owner);
-	}
-}
-
 // Gets the name of the behaviour type
 stock bool:GetBehaviourTypeName(BehaviourType:behaviourType, String:buffer[], maxlen)
 {
@@ -1422,6 +1492,13 @@ stock bool:AddBehaviourTypeRequirement(BehaviourType:behaviourType, const String
 // Checks if a plugin meets the requirements to be a behaviour of this type
 stock bool:BehaviourTypePluginCheck(BehaviourType:behaviourType, Handle:plugin)
 {
+	#if defined DEBUG
+
+	new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
+	GetBehaviourTypeName(behaviourType, behaviourTypeName, sizeof(behaviourTypeName));
+
+	#endif
+
 	new String:functionName[SYMBOL_MAX_LENGTH];
 
 	new Handle:requirements = GetBehaviourTypeRequirements(behaviourType);
@@ -1431,11 +1508,27 @@ stock bool:BehaviourTypePluginCheck(BehaviourType:behaviourType, Handle:plugin)
 		GetArrayString(requirements, i, functionName, sizeof(functionName));
 		if (GetFunctionByName(plugin, functionName) == INVALID_FUNCTION)
 		{
+			DEBUG_PRINT3("Gamma:BehaviourTypePluginCheck(\"%s\", %X) : No match (%s)", behaviourTypeName, plugin, functionName);
 			return false;
 		}
 	}
 
+	DEBUG_PRINT2("Gamma:BehaviourTypePluginCheck(\"%s\", %X) : Match", behaviourTypeName, plugin);
 	return true;
+}
+
+// Adds a behaviour to the behaviour types behaviour list
+stock AddBehaviourTypeBehaviour(BehaviourType:behaviourType, Behaviour:behaviour)
+{
+	new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
+	PushArrayCell(behaviours, behaviour);
+}
+
+// Removes a behaviour from the behaviour types behaviour list
+stock RemoveBehaviourTypeBehaviour(BehaviourType:behaviourType, Behaviour:behaviour)
+{
+	new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
+	RemoveFromArray(behaviours, FindValueInArray(behaviours, behaviour));
 }
 
 // Gets the behaviours of this type
@@ -1452,11 +1545,13 @@ stock Handle:GetBehaviourTypeBehaviours(BehaviourType:behaviourType)
 
 stock DestroyBehaviourType(BehaviourType:behaviourType)
 {
-	// Remove from global array and trie
-	RemoveFromArray(g_hArrayBehaviourTypes, FindValueInArray(g_hArrayBehaviourTypes, behaviourType));
-
 	new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
 	GetBehaviourTypeName(behaviourType, behaviourTypeName, sizeof(behaviourTypeName));
+
+	DEBUG_PRINT1("Gamma:DestroyBehaviourType(\"%s\")", behaviourTypeName);
+
+	// Remove from global array and trie
+	RemoveFromArray(g_hArrayBehaviourTypes, FindValueInArray(g_hArrayBehaviourTypes, behaviourType));
 	RemoveFromTrie(g_hTrieBehaviourTypes, behaviourTypeName);
 
 
@@ -1465,12 +1560,14 @@ stock DestroyBehaviourType(BehaviourType:behaviourType)
 	CloseHandle(requirements);
 
 	// Destroy all child behaviours
+	DEBUG_PRINT1("Gamma:DestroyBehaviourType(\"%s\") : Destroy Behaviours", behaviourTypeName);
 	new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
 	DECREASING_LOOP(i,behaviours)
 	{
 		new Behaviour:behaviour = GetArrayBehaviour(behaviours, i);
 		DestroyBehaviour(behaviour);
 	}
+	DEBUG_PRINT1("Gamma:DestroyBehaviourType(\"%s\") : Destroyed Behaviours", behaviourTypeName);
 
 	// Destroy the behaviors array and then the behaviour type trie
 	CloseHandle(behaviours);
@@ -1494,6 +1591,15 @@ stock DestroyBehaviourType(BehaviourType:behaviourType)
  // Creates a behaviour from a plugin, type and name
 stock Behaviour:CreateBehaviour(Handle:plugin, BehaviourType:type, const String:name[], &BehaviourCreationError:error)
 {
+	#if defined DEBUG
+
+	new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
+	GetBehaviourTypeName(type, behaviourTypeName, sizeof(behaviourTypeName));
+
+	#endif
+
+	DEBUG_PRINT3("Gamma:CreateBehaviour(%X, \"%s\", \"%s\")", plugin, behaviourTypeName, name);
+
 	// A behaviour can only be registered if there's no behaviour with the same name and behaviour type
 	if (FindBehaviour(type, name) != INVALID_BEHAVIOUR)
 	{
@@ -1524,12 +1630,16 @@ stock Behaviour:CreateBehaviour(Handle:plugin, BehaviourType:type, const String:
 	SetTrieString(behaviour, BEHAVIOUR_NAME, name);
 	SetTrieValue(behaviour, BEHAVIOUR_POSSESSED_PLAYERS, CreateArray());
 
-	// Now push it to the global array and trie for behaviours
-	PushArrayCell(g_hArrayBehaviours, behaviour);
 
 	new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
 	GetBehaviourFullNameEx(type, name, behaviourFullName, sizeof(behaviourFullName));
+	
+	DEBUG_PRINT4("Gamma:CreateBehaviour(%X, \"%s\", \"%s\") : Full name (%s)", plugin, behaviourTypeName, name, behaviourFullName);
+
+	// Now push it to the global array and trie for behaviours
+	PushArrayCell(g_hArrayBehaviours, behaviour);
 	SetTrieValue(g_hTrieBehaviours, behaviourFullName, behaviour);
+	AddBehaviourTypeBehaviour(type, Behaviour:behaviour);
 
 	error = BehaviourCreationError_None;
 	return Behaviour:behaviour;
@@ -1646,11 +1756,20 @@ stock bool:GetBehaviourName(Behaviour:behaviour, String:buffer[], maxlen)
 stock BehaviourPossessPlayer(Behaviour:behaviour, client)
 {
 	// Check if the client already owns the behaviour or not before giving it to him
-	new index = FindValueInArray(g_hClientArrayBehaviours[client], behaviour);
+	new index = FindValueInArray(g_hPlayerArrayBehaviours[client], behaviour);
 	if (index == -1)
 	{
+		#if defined DEBUG
+
+		new String:behaviourName[BEHAVIOUR_NAME_MAX_LENGTH];
+		GetBehaviourName(behaviour, behaviourName, sizeof(behaviourName));
+
+		#endif
+
+		DEBUG_PRINT2("Gamma:BehaviourPossessPlayer(\"%s\", \"%N\")", behaviourName, client);
+
 		// Add the behaviour to the clients behaviour list
-		PushArrayCell(g_hClientArrayBehaviours[client], behaviour);
+		PushArrayCell(g_hPlayerArrayBehaviours[client], behaviour);
 
 		// TODO: Make a stock for dhooks that is easily usable in the behviours instead?
 		// Add the OnPlayerRunCmd in the behaviour if needed to the clients private forward
@@ -1658,7 +1777,9 @@ stock BehaviourPossessPlayer(Behaviour:behaviour, client)
 		new Function:onPlayerRunCmd = GetFunctionInBehaviour(behaviour, "Gamma_OnBehaviourPlayerRunCmd");
 		if (onPlayerRunCmd != INVALID_FUNCTION)
 		{
-			AddToForward(g_hClientPrivateBehaviourPlayerRunCmd[client], plugin, onPlayerRunCmd);
+			DEBUG_PRINT2("Gamma:BehaviourPossessPlayer(\"%s\", \"%N\") : Has Gamma_OnBehaviourPlayerRunCmd", behaviourName, client);
+
+			AddToForward(g_hPlayerPrivateBehaviourPlayerRunCmd[client], plugin, onPlayerRunCmd);
 			g_bClientHasPrivateBehaviourPlayerRunCmd[client] = true;
 		}
 
@@ -1676,10 +1797,20 @@ stock BehaviourPossessPlayer(Behaviour:behaviour, client)
 stock BehaviourReleasePlayer(Behaviour:behaviour, client)
 {
 	// Check if the client owns the behaviour before attempting to take it away from him
-	new index = FindValueInArray(g_hClientArrayBehaviours[client], behaviour);
+	new index = FindValueInArray(g_hPlayerArrayBehaviours[client], behaviour);
 	if (index != -1)
 	{
-		RemoveFromArray(g_hClientArrayBehaviours[client], index);
+		#if defined DEBUG
+
+		new String:behaviourName[BEHAVIOUR_NAME_MAX_LENGTH];
+		GetBehaviourName(behaviour, behaviourName, sizeof(behaviourName));
+
+		#endif
+
+		DEBUG_PRINT2("Gamma:BehaviourReleasePlayer(\"%s\", \"%N\")", behaviourName, client);
+
+		// Remove behaviour from the clients behaviour list
+		RemoveFromArray(g_hPlayerArrayBehaviours[client], index);
 
 		// TODO: Make a stock for dhooks that is easily usable in the behviours instead?
 		// Remove the OnPlayerRunCmd in the behaviour if needed from the clients private forward
@@ -1687,8 +1818,10 @@ stock BehaviourReleasePlayer(Behaviour:behaviour, client)
 		new Function:onPlayerRunCmd = GetFunctionInBehaviour(behaviour, "Gamma_OnBehaviourPlayerRunCmd");
 		if (onPlayerRunCmd != INVALID_FUNCTION)
 		{
-			RemoveFromForward(g_hClientPrivateBehaviourPlayerRunCmd[client], plugin, onPlayerRunCmd);
-			g_bClientHasPrivateBehaviourPlayerRunCmd[client] = (GetForwardFunctionCount(g_hClientPrivateBehaviourPlayerRunCmd[client]) != 0);
+			DEBUG_PRINT2("Gamma:BehaviourReleasePlayer(\"%s\", \"%N\") : Has Gamma_OnBehaviourPlayerRunCmd", behaviourName, client);
+
+			RemoveFromForward(g_hPlayerPrivateBehaviourPlayerRunCmd[client], plugin, onPlayerRunCmd);
+			g_bClientHasPrivateBehaviourPlayerRunCmd[client] = (GetForwardFunctionCount(g_hPlayerPrivateBehaviourPlayerRunCmd[client]) != 0);
 		}
 
 		// Remove the player from the behaviours possessed list
@@ -1723,28 +1856,40 @@ stock Function:GetFunctionInBehaviour(Behaviour:behaviour, const String:function
 // Destroys the behaviour, freeing all it's resources
 stock DestroyBehaviour(Behaviour:behaviour)
 {
-	// Remove from the global array and trie
-	RemoveFromArray(g_hArrayBehaviours, FindValueInArray(g_hArrayBehaviours, behaviour));
+	#if defined DEBUG
+
+	new String:behaviourName[BEHAVIOUR_NAME_MAX_LENGTH];
+	GetBehaviourName(behaviour, behaviourName, sizeof(behaviourName));
+
+	#endif
 
 	new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
 	GetBehaviourFullName(behaviour, behaviourFullName, sizeof(behaviourFullName));
-	RemoveFromTrie(g_hTrieBehaviours, behaviourFullName);
 
-	// Take away the behaviour from all possessed players and then close the possessed players array
+	DEBUG_PRINT2("Gamma:DestroyBehaviour(\"%s\") : Full name (%s)", behaviourName, behaviourFullName);
+
+	// Remove from the global array and trie
+	RemoveFromArray(g_hArrayBehaviours, FindValueInArray(g_hArrayBehaviours, behaviour));
+	RemoveFromTrie(g_hTrieBehaviours, behaviourFullName);
+	RemoveBehaviourTypeBehaviour(GetBehaviourType(behaviour), behaviour);
+
+	// Take away the behaviour from all possessed players
+	DEBUG_PRINT1("Gamma:DestroyBehaviour(\"%s\") : Releasing players", behaviourName);
 	new Handle:possessedPlayers = GetBehaviourPossessedPlayers(behaviour);
 	DECREASING_LOOP(i,possessedPlayers)
 	{
 		BehaviourReleasePlayer(behaviour, GetArrayCell(possessedPlayers, i));
 	}
-	CloseHandle(possessedPlayers);
+	DEBUG_PRINT1("Gamma:DestroyBehaviour(\"%s\") : Released players", behaviourName);
 
-	// Then close the behaviour trie
+	// Then close the possessed players and behaviour trie handles
+	CloseHandle(possessedPlayers);
 	CloseHandle(Handle:behaviour);
 }
 
 
 /*******************************************************************************
- *	Helpers
+ *	Wrappers
  *******************************************************************************/
 
 // Calls an optional function in the targetted plugin, if it exists, without parameters

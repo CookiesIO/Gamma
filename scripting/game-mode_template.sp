@@ -20,7 +20,7 @@
 new GameMode:g_hMyGameMode;
 new BehaviourType:g_hMyBehaviourType;
 
-public OnPluginStart()
+public OnAllPluginsLoaded()
 {
 	// Create MyGameMode in OnPluginStart (gamma is required, so it should be safe, right?)
 	g_hMyGameMode = Gamma_RegisterGameMode("MyGameMode");

@@ -53,7 +53,7 @@ enum Behaviour
  *	Returns an ADT array with all game modes
  *
  *	@return		ADT array with all game modes
- *	@note		Must be closed with CloseHandle!
+ *	@note		Must be closed with CloseHandle! Must not be modified!
  */
 native Handle:Gamma_GetAllGameModes();
 
@@ -93,7 +93,7 @@ native GameMode:Gamma_FindGameMode(const String:name[]);
  *
  *	@param gameMode		Game mode to get all behaviour types from
  *	@return 			ADT array with all behaviour types in the game mode
- *	@note				Must be closed with CloseHandle!
+ *	@note				Must be closed with CloseHandle! Must not be modified!
  */
 native Handle:Gamma_GetGameModeBehaviourTypes(GameMode:gameMode);
 
@@ -235,7 +235,7 @@ native Gamma_AddBehaviourTypeRequirement(BehaviourType:behaviourType, const Stri
  *
  *	@param behaviourType	Behaviour type to look for
  *	@return					ADT array with behaviours
- *	@note					Must be closed with CloseHandle!
+ *	@note					Must be closed with CloseHandle! Must not be modified!
  */
 native Handle:Gamma_GetBehaviourTypeBehaviours(BehaviourType:behaviourType);
 
