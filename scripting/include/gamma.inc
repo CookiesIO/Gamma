@@ -53,7 +53,7 @@ enum Behaviour
  *	Returns an ADT array with all game modes
  *
  *	@return		ADT array with all game modes
- *	@note		Must be closed with CloseHandle! Must not be modified!
+ *	@note		Must be closed with CloseHandle!
  */
 native Handle:Gamma_GetAllGameModes();
 
@@ -68,7 +68,7 @@ native GameMode:Gamma_GetCurrentGameMode();
 
 
 /*******************************************************************************
- *	GAME MODE 					
+ *	GAME MODES 					
  *******************************************************************************/
 
 /**
@@ -89,35 +89,22 @@ native GameMode:Gamma_RegisterGameMode(const String:name[]);
 native GameMode:Gamma_FindGameMode(const String:name[]);
 
 /**
+ *	Gets the name of a game mode
+ *
+ *	@param gameMode		Game mode to get the name from
+ *	@param buffer		Buffer to store game mode name in
+ *	@param maxlen		Maximum size of the buffer
+ */
+native Gamma_GetGameModeName(GameMode:gameMode, String:buffer[], maxlen);
+
+/**
  *	Returns an ADT array with all behaviour types for a game mode
  *
  *	@param gameMode		Game mode to get all behaviour types from
  *	@return 			ADT array with all behaviour types in the game mode
- *	@note				Must be closed with CloseHandle! Must not be modified!
+ *	@note				Must be closed with CloseHandle!
  */
 native Handle:Gamma_GetGameModeBehaviourTypes(GameMode:gameMode);
-
-/**
- *	Gives a client a Behaviour
- *	Can only be called by the current game mode's plugin
- *
- *	@param client		Client index to give the behaviour to
- *	@param behaviour	Behaviour to give to the client
- *	@noreturn
- *	@error				Invalid client index or INVALID_BEHAVIOUR
- */
-native Gamma_GiveBehaviour(client, Behaviour:behaviour);
-
-/**
- *	Takes a clients Behaviour
- *	Can only be called by the current game mode's plugin
- *
- *	@param client		Client index to take the behaviour from
- *	@param behaviour	Behaviour to take from the client
- *	@noreturn
- *	@error				Invalid client index or INVALID_BEHAVIOUR
- */
-native Gamma_TakeBehaviour(client, Behaviour:behaviour);
 
 /**
  *	Called on the game mode when its being registered
@@ -190,7 +177,7 @@ forward Gamma_OnGameModeEnded(GameMode:gameMode);
 
 
 /*******************************************************************************
- *	BEHAVIOR TYPE				
+ *	BEHAVIOR TYPES				
  *******************************************************************************/
 
 /**
@@ -226,7 +213,7 @@ native Gamma_GetBehaviourTypeName(BehaviourType:behaviourType, String:buffer[], 
  *	@param behaviourType	Behaviour type to add the requirement to
  *	@param functionName		Name of the function that the behaviour must implement
  *	@noreturn
- *	@error					The behaviour type is already associated with a game mode
+ *	@error					Called outside of Gamma_OnCreateGameMode
  */
 native Gamma_AddBehaviourTypeRequirement(BehaviourType:behaviourType, const String:functionName[]);
 
@@ -235,7 +222,7 @@ native Gamma_AddBehaviourTypeRequirement(BehaviourType:behaviourType, const Stri
  *
  *	@param behaviourType	Behaviour type to look for
  *	@return					ADT array with behaviours
- *	@note					Must be closed with CloseHandle! Must not be modified!
+ *	@note					Must be closed with CloseHandle!
  */
 native Handle:Gamma_GetBehaviourTypeBehaviours(BehaviourType:behaviourType);
 
@@ -243,7 +230,7 @@ native Handle:Gamma_GetBehaviourTypeBehaviours(BehaviourType:behaviourType);
 
 
 /*******************************************************************************
- *	BEHAVIOR					
+ *	BEHAVIORS					
  *******************************************************************************/
 
 /**
@@ -275,6 +262,15 @@ native BehaviourType:Gamma_GetBehaviourType(Behaviour:behaviour);
  *	@noreturn
  */
 native Gamma_GetBehaviourName(Behaviour:behaviour, String:buffer[], maxlen);
+
+/**
+ *	Gets the players possessed by the behaviour
+ *
+ *	@param behaviour	Behaviour to get the possessed players from
+ *	@return				Handle to and ADT array containing the possessed players
+ *	@note				Handle must be closed!
+ */
+native Handle:Gamma_GetPossessedPlayers(Behaviour:behaviour);
 
 /**
  *	Adds a function in the behaviour to the forward, if it exists
@@ -366,6 +362,47 @@ forward Action:Gamma_OnBehaviourPlayerRunCmd(client, &buttons, &impulse, Float:v
 
 // So we have FEATURECAP_PLAYERRUNCMD_11PARAMS
 #include <sdktools_hooks>
+
+
+
+
+/*******************************************************************************
+ *	CLIENTS					
+ *******************************************************************************/
+
+/**
+ *	Gives a client a Behaviour
+ *	Can only be called by the current game mode's plugin
+ *
+ *	@param client		Client index to give the behaviour to
+ *	@param behaviour	Behaviour to give to the client
+ *	@noreturn
+ *	@error				Invalid client index or INVALID_BEHAVIOUR
+ */
+native Gamma_GiveBehaviour(client, Behaviour:behaviour);
+
+/**
+ *	Takes a clients Behaviour
+ *	Can only be called by the current game mode's plugin
+ *
+ *	@param client		Client index to take the behaviour from
+ *	@param behaviour	Behaviour to take from the client
+ *	@noreturn
+ *	@error				Invalid client index or INVALID_BEHAVIOUR
+ */
+native Gamma_TakeBehaviour(client, Behaviour:behaviour);
+
+/**
+ *	Gets all the behaviours possessing a player
+ *
+ *	@param client	Client index to get behaviours from
+ *	@param filter	Behaviour type filter, INVALID_BEHAVIOUR_TYPE to get all behaviours
+ *	@return			Handle to an ADT array containing the players behaviours
+ *	@note			Handle must be closed!
+ *	@error			Invalid client index
+ */
+native Handle:Gamma_GetPlayerBehaviours(client, BehaviourType:filter=INVALID_BEHAVIOUR_TYPE);
+
 
 
 
@@ -527,7 +564,9 @@ native bool:Gamma_GetBehaviourString(Behaviour:behaviour, const String:property[
  */
 native __GAMMA_PluginUnloading();
 
-#if (defined GAMMA_CONTAINS_GAME_MODE || defined GAMMA_CONTAINS_BEHAVIOUR) && !defined GAMMA_MANUAL_UNLOAD_NOTIFICATION
+#if !defined GAMMA_MANUAL_UNLOAD_NOTIFICATION
+
+#if (defined GAMMA_CONTAINS_GAME_MODE || defined GAMMA_CONTAINS_BEHAVIOUR)
 public OnPluginEnd()
 {
 	if (LibraryExists("gamma"))
@@ -535,8 +574,9 @@ public OnPluginEnd()
 		__GAMMA_PluginUnloading();
 	}
 }
-#endif
+#endif // (defined GAMMA_CONTAINS_GAME_MODE || defined GAMMA_CONTAINS_BEHAVIOUR)
 
+#endif// !defined GAMMA_MANUAL_UNLOAD_NOTIFICATION
 
 
 
@@ -565,9 +605,8 @@ public __pl_gamma_SetNTVOptional()
 	// Game mode natives
 	MarkNativeAsOptional("Gamma_RegisterGameMode");
 	MarkNativeAsOptional("Gamma_FindGameMode");
+	MarkNativeAsOptional("Gamma_GetGameModeName");
 	MarkNativeAsOptional("Gamma_GetGameModeBehaviourTypes");
-	MarkNativeAsOptional("Gamma_GiveBehaviour");
-	MarkNativeAsOptional("Gamma_TakeBehaviour");
 	// TODO: Add native to forcefully end the game mode?
 
 	// Behaviour type natives
@@ -581,9 +620,15 @@ public __pl_gamma_SetNTVOptional()
 	MarkNativeAsOptional("Gamma_RegisterBehaviour");
 	MarkNativeAsOptional("Gamma_GetBehaviourType");
 	MarkNativeAsOptional("Gamma_GetBehaviourName");
+	MarkNativeAsOptional("Gamma_GetPossessedPlayers");
 	MarkNativeAsOptional("Gamma_AddBehaviourFunctionToForward");
 	MarkNativeAsOptional("Gamma_RemoveBehaviourFunctionFromForward");
 	MarkNativeAsOptional("Gamma_SimpleBehaviourFunctionCall");
+
+	// Client natives
+	MarkNativeAsOptional("Gamma_GiveBehaviour");
+	MarkNativeAsOptional("Gamma_TakeBehaviour");
+	MarkNativeAsOptional("Gamma_GetPlayerBehaviours");
 
 	// Game mode properties natives
 	MarkNativeAsOptional("Gamma_SetGameModeValue");

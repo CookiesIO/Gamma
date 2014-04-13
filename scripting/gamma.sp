@@ -225,9 +225,8 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 	// Game mode natives
 	CreateNative("Gamma_RegisterGameMode", Native_Gamma_RegisterGameMode);
 	CreateNative("Gamma_FindGameMode", Native_Gamma_FindGameMode);
+	CreateNative("Gamma_GetGameModeName", Native_Gamma_GetGameModeName);
 	CreateNative("Gamma_GetGameModeBehaviourTypes", Native_Gamma_GetGameModeBehaviourTypes);
-	CreateNative("Gamma_GiveBehaviour", Native_Gamma_GiveBehaviour);
-	CreateNative("Gamma_TakeBehaviour", Native_Gamma_TakeBehaviour);
 	// TODO: Add native to forcefully end the game mode?
 
 	// Behaviour type natives
@@ -241,9 +240,15 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 	CreateNative("Gamma_RegisterBehaviour", Native_Gamma_RegisterBehaviour);
 	CreateNative("Gamma_GetBehaviourType", Native_Gamma_GetBehaviourType);
 	CreateNative("Gamma_GetBehaviourName", Native_Gamma_GetBehaviourName);
+	CreateNative("Gamma_GetPossessedPlayers", Native_Gamma_GetPossessedPlayers);
 	CreateNative("Gamma_AddBehaviourFunctionToForward", Native_Gamma_AddBehaviourFunctionToForward);
 	CreateNative("Gamma_RemoveBehaviourFunctionFromForward", Native_Gamma_RemoveBehaviourFunctionFromForward);
 	CreateNative("Gamma_SimpleBehaviourFunctionCall", Native_Gamma_SimpleBehaviourFunctionCall);
+
+	// Client natives
+	CreateNative("Gamma_GiveBehaviour", Native_Gamma_GiveBehaviour);
+	CreateNative("Gamma_TakeBehaviour", Native_Gamma_TakeBehaviour);
+	CreateNative("Gamma_GetPlayerBehaviours", Native_Gamma_GetPlayerBehaviours);
 
 	// Game mode properties natives
 	CreateNative("Gamma_SetGameModeValue", Native_Gamma_SetGameModeValue);
@@ -270,11 +275,11 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 
 public OnPluginStart()
 {
-	// Game mode data initialization
+	// Game mode data
 	g_hArrayGameModes = CreateArray();
 	g_hTrieGameModes = CreateTrie();
 
-	// Bhevaiour type data initialization
+	// Bhevaiour type data
 	g_hArrayBehaviourTypes = CreateArray();
 	g_hTrieBehaviourTypes = CreateTrie();
 
@@ -292,7 +297,12 @@ public OnPluginStart()
 	g_hGlobal_OnBehaviourPossessedClient = CreateGlobalForward("Gamma_OnBehaviourPossessedClient", ET_Ignore, Param_Cell, Param_Cell);
 	g_hGlobal_OnBehaviourReleasedClient = CreateGlobalForward("Gamma_OnBehaviourReleasedClient", ET_Ignore, Param_Cell, Param_Cell);
 
-	// State variable initialization
+	// Game mode creation variables
+	g_bGameModeInitializationFailed = false;
+	g_hGameModeInitializing = INVALID_GAME_MODE;
+	g_hGameModeInitializingPlugin = INVALID_HANDLE;
+
+	// State variables
 	g_bIsActive = false;
 	g_hCurrentGameMode = INVALID_GAME_MODE;
 	g_hGameModePlugin = INVALID_HANDLE;
@@ -300,7 +310,7 @@ public OnPluginStart()
 	// Cvars
 	g_hCvarEnabled = CreateConVar("gamma_enabled", "1", "Whether or not gamma is enabled (0|1)", FCVAR_PLUGIN, true, 0.0, true, 1.0);
 	g_hCvarGameMode = CreateConVar("gamma_gamemode", "", "Name of the game mode to play", FCVAR_PLUGIN|FCVAR_NOTIFY);
-	g_hCvarGameModeSelectionMode = CreateConVar("gamma_gamemode_selection_mode", "3", "Game mode selection method, 1=strictly by cvar, 2=first able to start, 3=by cvar but if it can't start then the first able to start", FCVAR_PLUGIN, true, 1.0, true, 3.0);
+	g_hCvarGameModeSelectionMode = CreateConVar("gamma_gamemode_selection_mode", "3", "Game mode selection method, 1=Strictly by cvar, 2=First able to start, 3=Attempt by cvar then first able to start", FCVAR_PLUGIN, true, 1.0, true, 3.0);
 
 	// Version cvar
 	CreateConVar("gamma_version", PLUGIN_VERSION, "Version of Gamma Game Mode Manager", FCVAR_SPONLY|FCVAR_NOTIFY|FCVAR_REPLICATED|FCVAR_DONTRECORD|FCVAR_PLUGIN);
@@ -578,7 +588,9 @@ public Native__GAMMA_PluginUnloading(Handle:plugin, numParams)
 
 public Native_Gamma_GetAllGameModes(Handle:plugin, numParams)
 {
-	return _:CloneHandle(g_hArrayGameModes);
+	// Clone the array so the target plugin can't make changes to the internal data
+	new Handle:arrayGameModesClone = CloneArray(g_hArrayGameModes);
+	return _:TransferHandleOwnership(arrayGameModesClone, plugin);
 }
 
 public Native_Gamma_GetCurrentGameMode(Handle:plugin, numParams)
@@ -630,55 +642,25 @@ public Native_Gamma_FindGameMode(Handle:plugin, numParams)
 	return _:FindGameMode(buffer);
 }
 
+public Native_Gamma_GetGameModeName(Handle:plugin, numParams)
+{
+	new GameMode:gameMode = GameMode:GetNativeCell(1);
+	new String:gameModeName[GAME_MODE_NAME_MAX_LENGTH];
+	GetGameModeName(gameMode, gameModeName, sizeof(gameModeName));
+
+	SetNativeString(2, gameModeName, GetNativeCell(3));
+}
+
 public Native_Gamma_GetGameModeBehaviourTypes(Handle:plugin, numParams)
 {
 	new GameMode:gameMode = GameMode:GetNativeCell(1);
+
+	// GetGameModeBehaviourTypes is an accessor, so it returns the internal handle for behaviour types
 	new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
-	return _:CloneHandle(behaviourTypes);
-}
 
-public Native_Gamma_GiveBehaviour(Handle:plugin, numParams)
-{
-	new client = GetNativeCell(1);
-	new Behaviour:behaviour = Behaviour:GetNativeCell(2);
-
-	if (g_hGameModePlugin != plugin)
-	{
-		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call Gamma_GiveBehaviour");
-	}
-	if (client < 1 || client > MaxClients)
-	{
-		return ThrowNativeError(SP_ERROR_NATIVE, "Invalid client index %d", client);
-	} 
-	if (!IsClientInGame(client))
-	{
-		return ThrowNativeError(SP_ERROR_NATIVE, "Client %d is not in game", client);
-	}
-
-	BehaviourPossessPlayer(behaviour, client);
-	return 1;
-}
-
-public Native_Gamma_TakeBehaviour(Handle:plugin, numParams)
-{
-	new client = GetNativeCell(1);
-	new Behaviour:behaviour = Behaviour:GetNativeCell(2);
-
-	if (g_hGameModePlugin != plugin)
-	{
-		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call Gamma_TakeBehaviour");
-	}
-	if (client < 1 || client > MaxClients)
-	{
-		return ThrowNativeError(SP_ERROR_NATIVE, "Invalid client index %d", client);
-	} 
-	if (!IsClientInGame(client))
-	{
-		return ThrowNativeError(SP_ERROR_NATIVE, "Client %d is not in game", client);
-	}
-
-	BehaviourReleasePlayer(behaviour, client);
-	return 1;
+	// Clone the array so the target plugin can't make changes to the internal data
+	behaviourTypes = CloneArray(behaviourTypes);
+	return _:TransferHandleOwnership(behaviourTypes, plugin);
 }
 
 
@@ -749,7 +731,13 @@ public Native_Gamma_AddBehaviourTypeRequirement(Handle:plugin, numParams)
 public Native_Gamma_GetBehaviourTypeBehaviours(Handle:plugin, numParams)
 {
 	new BehaviourType:behaviourType = BehaviourType:GetNativeCell(1);
-	return _:CloneHandle(GetBehaviourTypeBehaviours(behaviourType));
+
+	// GetBehaviourTypeBehaviours is an accessor, so it returns the internal handle for behaviours
+	new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
+
+	// Clone the array so the target plugin can't make changes to the internal data
+	behaviours = CloneArray(behaviours);
+	return _:TransferHandleOwnership(behaviours, plugin);
 }
 
 
@@ -799,6 +787,18 @@ public Native_Gamma_GetBehaviourName(Handle:plugin, numParams)
 	GetBehaviourName(behaviour, behaviourName, sizeof(behaviourName));
 
 	SetNativeString(2, behaviourName, GetNativeCell(3));
+}
+
+public Native_Gamma_GetPossessedPlayers(Handle:plugin, numParams)
+{
+	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
+
+	// GetBehaviourPossessedPlayers is an accessor, so it returns the internal handle for possessed players
+	new Handle:possessedPlayers = GetBehaviourPossessedPlayers(behaviour);
+
+	// Clone the array so the target plugin can't make changes to the internal data
+	possessedPlayers = CloneArray(possessedPlayers);
+	return _:TransferHandleOwnership(possessedPlayers, plugin);
 }
 
 public Native_Gamma_AddBehaviourFunctionToForward(Handle:plugin, numParams)
@@ -863,6 +863,75 @@ public Native_Gamma_SimpleBehaviourFunctionCall(Handle:plugin, numParams)
 		Call_Finish(returnValue);
 	}
 	return returnValue;
+}
+
+
+/*******************************************************************************
+ *	CLIENT NATIVES
+ *******************************************************************************/
+
+public Native_Gamma_GiveBehaviour(Handle:plugin, numParams)
+{
+	new client = GetNativeCell(1);
+	new Behaviour:behaviour = Behaviour:GetNativeCell(2);
+
+	if (g_hGameModePlugin != plugin)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call Gamma_GiveBehaviour");
+	}
+	if (client < 1 || client > MaxClients)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Invalid client index %d", client);
+	}
+	if (!IsClientInGame(client))
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Client %d is not in game", client);
+	}
+
+	BehaviourPossessPlayer(behaviour, client);
+	return 1;
+}
+
+public Native_Gamma_TakeBehaviour(Handle:plugin, numParams)
+{
+	new client = GetNativeCell(1);
+	new Behaviour:behaviour = Behaviour:GetNativeCell(2);
+
+	if (g_hGameModePlugin != plugin)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call Gamma_TakeBehaviour");
+	}
+	if (client < 1 || client > MaxClients)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Invalid client index %d", client);
+	}
+	if (!IsClientInGame(client))
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Client %d is not in game", client);
+	}
+
+	BehaviourReleasePlayer(behaviour, client);
+	return 1;
+}
+
+public Native_Gamma_GetPlayerBehaviours(Handle:plugin, numParams)
+{
+	new client = GetNativeCell(1);
+	new BehaviourType:behaviourType = BehaviourType:GetNativeCell(2);
+
+	if (client < 1 || client > MaxClients)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Invalid client index %d", client);
+	}
+	if (!IsClientInGame(client))
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Client %d is not in game", client);
+	}
+
+	// GetPlayerBehaviours returns a new handle, since it's not an accessor
+	new Handle:behaviours = GetPlayerBehaviours(client, behaviourType);
+
+	return _:TransferHandleOwnership(behaviours, plugin);
 }
 
 
@@ -1834,6 +1903,33 @@ stock BehaviourReleasePlayer(Behaviour:behaviour, client)
 	}
 }
 
+// Gets all behaviours on a client, if filter != INVALID_BEHAVIOUR_TYPE then only of that behaviour type
+stock Handle:GetPlayerBehaviours(client, BehaviourType:filter)
+{
+	new Handle:behaviours;
+	if (filter == INVALID_BEHAVIOUR_TYPE)
+	{
+		// If there's no filter, just clone the array
+		behaviours = CloneArray(g_hPlayerArrayBehaviours[client]);
+	}
+	else
+	{
+		// Else we'll have to look through all the playes behaviours and add them to an array
+		behaviours = CreateArray();
+		new Handle:playerBehaviours = g_hPlayerArrayBehaviours[client];
+		new count = GetArraySize(playerBehaviours);
+		for (new i = 0; i < count; i++)
+		{
+			new Behaviour:behaviour = GetArrayBehaviour(playerBehaviours, i);
+			if (GetBehaviourType(behaviour) == filter)
+			{
+				PushArrayCell(playerBehaviours, behaviour);
+			}
+		}
+	}
+	return behaviours;
+}
+
 // Gets the handle to the ADT array with all the players possessed by this behaviour right now
 stock Handle:GetBehaviourPossessedPlayers(Behaviour:behaviour)
 {
@@ -1942,5 +2038,13 @@ stock SimpleForwardCallTwoParams(Handle:fwd, any:param1, any:param2, &error=0)
 	Call_PushCell(param2);
 	error = Call_Finish(result);
 	return result;
+}
+
+// Transfers ownership of the handle to the plugin, it closes the original handle
+stock Handle:TransferHandleOwnership(Handle:handle, Handle:plugin)
+{
+	new Handle:temp = CloneHandle(handle, plugin);
+	CloseHandle(handle);
+	return temp;
 }
 
