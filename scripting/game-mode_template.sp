@@ -34,6 +34,17 @@ public Gamma_OnCreateGameMode()
 	Gamma_AddBehaviourTypeRequirement(g_hMyBehaviourType, "MyFunctionRequirement");
 }
 
+// This is called when Gamma wants to know if your game mode can start
+// Do not do any initialilizing work here, only make sure you all you need to be able to start
+public bool:Gamma_IsGameModeAbleToStartRequest()
+{
+	// We can start if there's 1 or more behaviours of MyBehaviourType
+	new Handle:behaviours = Gamma_GetBehaviourTypeBehaviours(g_hMyBehaviourType);
+	new bool:canStart = GetArraySize(behaviours) > 0;
+	CloseHandle(behaviours);
+	return canStart;
+}
+
 public Gamma_OnGameModeStart()
 {
 	// Get all behaviours of MyBehaviourType
