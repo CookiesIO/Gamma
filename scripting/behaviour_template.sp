@@ -19,35 +19,10 @@
 // Storage variable for MyBehaviour
 new Behaviour:g_hMyBehaviour = INVALID_BEHAVIOUR;
 
-public OnAllPluginsLoaded()
-{
-	PrintToServer("All plugins loaded");
-	if (Gamma_FindGameMode("MyGameMode") != INVALID_GAME_MODE)
-	{
-		CreateBehaviour();
-	}
-}
-
 public Gamma_OnGameModeCreated(GameMode:gameMode)
 {
 	PrintToServer("GameModeCreated");
 	if (gameMode == Gamma_FindGameMode("MyGameMode"))
-	{
-		CreateBehaviour();
-	}
-}
-
-public Gamma_OnGameModeDestroyed(GameMode:gameMode)
-{
-	if (gameMode == Gamma_FindGameMode("MyGameMode"))
-	{
-		g_hMyBehaviour = INVALID_BEHAVIOUR;
-	}
-}
-
-CreateBehaviour()
-{
-	if (g_hMyBehaviour == INVALID_BEHAVIOUR)
 	{
 		// Create our behaviour!
 		new BehaviourType:behaviourType = Gamma_FindBehaviourType("MyBehaviourType");

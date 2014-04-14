@@ -64,6 +64,13 @@ native Handle:Gamma_GetAllGameModes();
  */
 native GameMode:Gamma_GetCurrentGameMode();
 
+/**
+ *	Called when Gamma runs it auto detection during round start, if it's the first time it sees the plugin
+ *	This is inteded to be used for creation of game modes
+ *
+ *	@noreturn
+ */
+forward Gamma_PluginDetected();
 
 
 
@@ -107,6 +114,14 @@ native Gamma_GetGameModeName(GameMode:gameMode, String:buffer[], maxlen);
 native Handle:Gamma_GetGameModeBehaviourTypes(GameMode:gameMode);
 
 /**
+ *	Forces the game mode to end
+ *	Can only be called by the currently active game mode
+ *
+ *	@noreturn
+ */
+native Gamma_ForceStopGameMode();
+
+/**
  *	Called on the game mode when its being registered
  *	This can be used for initializing things that should only be available 
  *	after the game mode is registered in the game mode manager
@@ -126,6 +141,7 @@ forward Gamma_OnDestroyGameMode();
 
 /**
  *	Called when a game mode is registered and created
+ *	This forward can lie, it can also be called right after PluginDetected
  *
  *	@noreturn
  */
@@ -607,7 +623,7 @@ public __pl_gamma_SetNTVOptional()
 	MarkNativeAsOptional("Gamma_FindGameMode");
 	MarkNativeAsOptional("Gamma_GetGameModeName");
 	MarkNativeAsOptional("Gamma_GetGameModeBehaviourTypes");
-	// TODO: Add native to forcefully end the game mode?
+	MarkNativeAsOptional("Gamma_ForceStopGameMode");
 
 	// Behaviour type natives
 	MarkNativeAsOptional("Gamma_CreateBehaviourType");

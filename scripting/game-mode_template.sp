@@ -20,9 +20,9 @@
 new GameMode:g_hMyGameMode;
 new BehaviourType:g_hMyBehaviourType;
 
-public OnAllPluginsLoaded()
+public Gamma_PluginDetected()
 {
-	// Create MyGameMode in OnPluginStart (gamma is required, so it should be safe, right?)
+	// Create MyGameMode, Gamma_PluginDetected should only run once per gamma/plugin life time
 	g_hMyGameMode = Gamma_RegisterGameMode("MyGameMode");
 }
 
@@ -60,6 +60,7 @@ public Gamma_OnGameModeStart()
 
 			// Also, now that the player is given the behaviour we want to call MyFunctionRequirement
 			Gamma_SimpleBehaviourFunctionCall(behaviour, "MyFunctionRequirement", _, i);
+			//break;
 		}
 	}
 

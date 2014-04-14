@@ -160,11 +160,21 @@ enum BehaviourCreationError
 #define DEBUG_PRINT6(%1,%2,%3,%4,%5,%6,%7)
 #endif
 
+enum TargetFilterVerbosity
+{
+	TargetFilterVerbosity_None,
+	TargetFilterVerbosity_BehaviourTypeOnly,
+	TargetFilterVerbosity_All
+}
+
 
 
 /*******************************************************************************
  *	GLOBAL VARIABLES
  *******************************************************************************/
+
+// Known plugins, used to auto detect new plugins
+new Handle:g_hArrayKnownPlugins;
 
 // Game modes data
 new Handle:g_hArrayGameModes;				// List<GameMode>
@@ -190,8 +200,11 @@ new Handle:g_hGameModeInitializingPlugin;
 
 // State variables
 new bool:g_bIsActive;
-new Handle:g_hGameModePlugin;
+new Handle:g_hCurrentGameModePlugin;
 new GameMode:g_hCurrentGameMode;
+
+// Target filter verbosity
+new TargetFilterVerbosity:g_eTargetFilterVerbosity;
 
 // Global forwards
 new Handle:g_hGlobal_OnGameModeCreated;				//	Gamma_OnGameModeCreated(GameMode:gameMode)
@@ -208,7 +221,10 @@ new Handle:g_hCvarEnabled;	// gamma_enabled "<0|1>"
 new Handle:g_hCvarGameMode;	// gamma_gamemode "gamemode name"
 
 // Game mode selection method, 1=strictly by cvar, 2=first able to start, 3=by cvar but if it can't start then the first able to start
-new Handle:g_hCvarGameModeSelectionMode;	// gamma_gamemode_selection_mode "<1|2|3>" 
+new Handle:g_hCvarGameModeSelectionMode;	// gamma_gamemode_selection_mode "<1|2|3>"
+
+// Target filters verbosity, 0=no target filters, 1=behaviour type filters, 2=behaviour type and behaviour target filters
+new Handle:g_hCvarTargetFilters;	// gamma_target_filters "<0|1|2>"
 
 
 
@@ -227,7 +243,7 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 	CreateNative("Gamma_FindGameMode", Native_Gamma_FindGameMode);
 	CreateNative("Gamma_GetGameModeName", Native_Gamma_GetGameModeName);
 	CreateNative("Gamma_GetGameModeBehaviourTypes", Native_Gamma_GetGameModeBehaviourTypes);
-	// TODO: Add native to forcefully end the game mode?
+	CreateNative("Gamma_ForceStopGameMode", Native_Gamma_ForceStopGameMode);
 
 	// Behaviour type natives
 	CreateNative("Gamma_CreateBehaviourType", Native_Gamma_CreateBehaviourType);
@@ -305,12 +321,13 @@ public OnPluginStart()
 	// State variables
 	g_bIsActive = false;
 	g_hCurrentGameMode = INVALID_GAME_MODE;
-	g_hGameModePlugin = INVALID_HANDLE;
+	g_hCurrentGameModePlugin = INVALID_HANDLE;
 
 	// Cvars
 	g_hCvarEnabled = CreateConVar("gamma_enabled", "1", "Whether or not gamma is enabled (0|1)", FCVAR_PLUGIN, true, 0.0, true, 1.0);
 	g_hCvarGameMode = CreateConVar("gamma_gamemode", "", "Name of the game mode to play", FCVAR_PLUGIN|FCVAR_NOTIFY);
 	g_hCvarGameModeSelectionMode = CreateConVar("gamma_gamemode_selection_mode", "3", "Game mode selection method, 1=Strictly by cvar, 2=First able to start, 3=Attempt by cvar then first able to start", FCVAR_PLUGIN, true, 1.0, true, 3.0);
+	g_hCvarTargetFilters = CreateConVar("gamma_target_filters", "1", "Target filter verbosity, 0=No target filters, 1=Behaviour type only filters, 2=Behaviour type and behaviour filters", FCVAR_PLUGIN, true, 0.0, true, 2.0);
 
 	// Version cvar
 	CreateConVar("gamma_version", PLUGIN_VERSION, "Version of Gamma Game Mode Manager", FCVAR_SPONLY|FCVAR_NOTIFY|FCVAR_REPLICATED|FCVAR_DONTRECORD|FCVAR_PLUGIN);
@@ -333,6 +350,15 @@ public OnPluginStart()
 public OnPluginEnd()
 {
 	StopGameMode(true);
+
+	// Destroy all game modes when the plugin ends,
+	// cleans up all plugins tied to them as well,
+	// so no need to destroy behaviours manually
+	DECREASING_LOOP(i,g_hArrayGameModes)
+	{
+		new GameMode:gameMode = GetArrayGameMode(g_hArrayGameModes, i);
+		DestroyGameMode(gameMode);
+	}
 }
 
 
@@ -408,6 +434,10 @@ public Action:OnPlayerRunCmd(client, &buttons, &impulse, Float:vel[3], Float:ang
 }
 
 
+
+
+
+
 /*******************************************************************************
  *	EVENT HELPERS
  *******************************************************************************/
@@ -418,10 +448,13 @@ stock StopGameMode(bool:forceful)
 	{
 		DEBUG_PRINT1("Gamma:StopGameMode(forceful=%d)", forceful);
 
-		SimpleOptionalPluginCall(g_hGameModePlugin, "Gamma_OnGameModeEnd");
+		RemoveTargetFilters(g_hCurrentGameMode);
+
+		SimpleOptionalPluginCall(g_hCurrentGameModePlugin, "Gamma_OnGameModeEnd");
 		SimpleForwardCallOneParam(g_hGlobal_OnGameModeEnded, g_hCurrentGameMode);
 
 		// Release all clients from their behaviours (curses!)
+		DEBUG_PRINT1("Gamma:StopGameMode(forceful=%d) : Releasing all players", forceful);
 		for (new i = 1; i <= MaxClients; i++)
 		{
 			if (IsClientInGame(i))
@@ -429,14 +462,17 @@ stock StopGameMode(bool:forceful)
 				ReleasePlayerFromBehaviours(i);
 			}
 		}
+		DEBUG_PRINT1("Gamma:StopGameMode(forceful=%d) : Released all players", forceful);
 
 		if (forceful)
 		{
 			// Force stalemate
 		}
 
+		g_eTargetFilterVerbosity = TargetFilterVerbosity_None;
+
 		g_hCurrentGameMode = INVALID_GAME_MODE;
-		g_hGameModePlugin = INVALID_HANDLE;
+		g_hCurrentGameModePlugin = INVALID_HANDLE;
 
 		g_bIsActive = false;
 	}
@@ -446,7 +482,50 @@ stock ChooseAndStartGameMode()
 {
 	if (GetConVarBool(g_hCvarEnabled))
 	{
-		DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : enabled");
+		DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : Enabled");
+
+
+		DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : Auto finding plugins - Start");
+
+		new Handle:pluginIter = GetPluginIterator();
+		new Handle:newKnownPlugins = CreateArray();
+
+		if (g_hArrayKnownPlugins == INVALID_HANDLE)
+		{
+			DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : Auto finding plugins - No knowns");
+
+			// We don't have any known plugins, so we'll just call it on all plugins
+			while (MorePlugins(pluginIter))
+			{
+				new Handle:plugin = ReadPlugin(pluginIter);
+				DetectedPlugin(plugin);
+				PushArrayCell(newKnownPlugins, plugin);
+			}
+		}
+		else
+		{
+			DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : Auto finding plugins - Have knowns");
+
+			// We have known plugins, so see if we know the plugin before called PluginDetected
+			while (MorePlugins(pluginIter))
+			{
+				new Handle:plugin = ReadPlugin(pluginIter);
+				if (FindValueInArray(g_hArrayKnownPlugins, plugin) == -1)
+				{
+					DetectedPlugin(plugin);
+				}
+				PushArrayCell(newKnownPlugins, plugin);
+			}
+			CloseHandle(g_hArrayKnownPlugins);
+		}
+
+		g_hArrayKnownPlugins = newKnownPlugins;
+		CloseHandle(pluginIter);
+
+
+		DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : Auto finding plugins - Ended");
+
+		g_eTargetFilterVerbosity = TargetFilterVerbosity:GetConVarInt(g_hCvarTargetFilters);
 
 		new String:gameModeName[GAME_MODE_NAME_MAX_LENGTH];
 		GetConVarString(g_hCvarGameMode, gameModeName, sizeof(gameModeName));
@@ -476,6 +555,26 @@ stock ChooseAndStartGameMode()
 					AttemptStartAny();
 				}
 			}
+		}
+	}
+}
+
+stock DetectedPlugin(Handle:plugin)
+{
+	SimpleOptionalPluginCall(plugin, "Gamma_PluginDetected");
+	DECREASING_LOOP(i,g_hArrayGameModes)
+	{
+		// Uhh, just to be safe, lets see if the behaviour hasn't already created it's behaviour
+		// for the game mode we're about to signal has been created
+		new GameMode:gameMode = GetArrayGameMode(g_hArrayGameModes, i);
+		new Behaviour:behaviour = FindBehaviourInGameModeByPlugin(gameMode, plugin);
+
+		DEBUG_PRINT2("Gamma:DetectedPlugin(%X) : Behaviour (%X)",plugin,behaviour);
+
+		if (behaviour == INVALID_BEHAVIOUR)
+		{
+			DEBUG_PRINT1("Gamma:DetectedPlugin(%X) : Calling Gamma_OnGameModeCreated",plugin);
+			SimpleOptionalPluginCallOneParam(plugin, "Gamma_OnGameModeCreated", gameMode);
 		}
 	}
 }
@@ -516,10 +615,12 @@ stock bool:AttemptStart(GameMode:gameMode)
 			DEBUG_PRINT1("Gamma:AttemptStart(\"%s\") : Able to start", gameModeName);
 
 			g_hCurrentGameMode = gameMode;
-			g_hGameModePlugin = gameModePlugin;
+			g_hCurrentGameModePlugin = gameModePlugin;
 
 			SimpleOptionalPluginCall(gameModePlugin, "Gamma_OnGameModeStart");
 			SimpleForwardCallOneParam(g_hGlobal_OnGameModeStarted, gameMode);
+
+			AddTargetFilters(gameMode);
 
 			g_bIsActive = true;
 			return true;
@@ -530,6 +631,322 @@ stock bool:AttemptStart(GameMode:gameMode)
 	return false;
 }
 
+stock AddTargetFilters(GameMode:gameMode)
+{
+	if (g_eTargetFilterVerbosity != TargetFilterVerbosity_None)
+	{
+		new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
+		DECREASING_LOOP(i,behaviourTypes)
+		{
+			new BehaviourType:behaviourType = GetArrayBehaviourType(behaviourTypes, i);
+			AddBehaviourTypeTargetFilter(behaviourType);
+		}
+	}
+}
+
+stock RemoveTargetFilters(GameMode:gameMode)
+{
+	if (g_eTargetFilterVerbosity != TargetFilterVerbosity_None)
+	{
+		new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
+		DECREASING_LOOP(i,behaviourTypes)
+		{
+			new BehaviourType:behaviourType = GetArrayBehaviourType(behaviourTypes, i);
+			RemoveBehaviourTypeTargetFilter(behaviourType);
+		}
+	}
+}
+
+stock AddBehaviourTypeTargetFilter(BehaviourType:behaviourType)
+{
+	if (g_eTargetFilterVerbosity >= TargetFilterVerbosity_BehaviourTypeOnly)
+	{
+		new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
+		GetBehaviourTypeName(behaviourType, behaviourTypeName, sizeof(behaviourTypeName));
+
+		new String:targetFilter[BEHAVIOUR_TYPE_NAME_MAX_LENGTH+2];
+
+		// Only those with a behaviour of type
+		Format(targetFilter, sizeof(targetFilter), "@%s", behaviourTypeName);
+		AddMultiTargetFilter(targetFilter, BehaviourTypeMultiTargetFilter, targetFilter, false);
+
+		// Only those without a behaviour of type
+		Format(targetFilter, sizeof(targetFilter), "@!%s", behaviourTypeName);
+		AddMultiTargetFilter(targetFilter, BehaviourTypeMultiTargetFilter, targetFilter, false);
+
+		// Add behaviour target filters if the verbosity says yes!
+		if (g_eTargetFilterVerbosity == TargetFilterVerbosity_All)
+		{
+			new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
+			DECREASING_LOOP(i,behaviours)
+			{
+				new Behaviour:behaviour = GetArrayBehaviour(behaviours, i);
+				AddBehaviourTargetFilter(behaviour);
+			}
+		}
+	}
+}
+
+stock AddBehaviourTargetFilter(Behaviour:behaviour)
+{
+	if (g_eTargetFilterVerbosity == TargetFilterVerbosity_All)
+	{
+		// Use behaviour full name as it prevents ambiguous targetting
+		new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
+		GetBehaviourFullName(behaviour, behaviourFullName, sizeof(behaviourFullName));
+
+		new String:targetFilter[BEHAVIOUR_FULL_NAME_MAX_LENGTH+2];
+
+		// Only those with the behaviour
+		Format(targetFilter, sizeof(targetFilter), "@%s", behaviourFullName);
+		AddMultiTargetFilter(targetFilter, BehaviourFullNameMultiTargetFilter, targetFilter, false);
+
+		// Only those without the behaviour
+		Format(targetFilter, sizeof(targetFilter), "@!%s", behaviourFullName);
+		AddMultiTargetFilter(targetFilter, BehaviourFullNameMultiTargetFilter, targetFilter, false);
+
+
+		// But for ease of use also include just the behaviour name, as the above is only in rare circumstances
+		GetBehaviourName(behaviour, behaviourFullName, sizeof(behaviourFullName));
+
+		// Only those with the behaviour
+		Format(targetFilter, sizeof(targetFilter), "@%s", behaviourFullName);
+		AddMultiTargetFilter(targetFilter, BehaviourMultiTargetFilter, targetFilter, false);
+
+		// Only those without the behaviour
+		Format(targetFilter, sizeof(targetFilter), "@!%s", behaviourFullName);
+		AddMultiTargetFilter(targetFilter, BehaviourMultiTargetFilter, targetFilter, false);
+	}
+}
+
+stock RemoveBehaviourTypeTargetFilter(BehaviourType:behaviourType)
+{
+	if (g_eTargetFilterVerbosity == TargetFilterVerbosity_BehaviourTypeOnly ||
+		g_eTargetFilterVerbosity == TargetFilterVerbosity_All)
+	{
+		new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
+		GetBehaviourTypeName(behaviourType, behaviourTypeName, sizeof(behaviourTypeName));
+
+		new String:targetFilter[BEHAVIOUR_TYPE_NAME_MAX_LENGTH+2];
+
+		// Only those with a behaviour of type
+		Format(targetFilter, sizeof(targetFilter), "@%s", behaviourTypeName);
+		RemoveMultiTargetFilter(targetFilter, BehaviourTypeMultiTargetFilter);
+
+		// Only those without a behaviour of type
+		Format(targetFilter, sizeof(targetFilter), "@!%s", behaviourTypeName);
+		RemoveMultiTargetFilter(targetFilter, BehaviourTypeMultiTargetFilter);
+
+		// Remove behaviour target filters if the verbosity says so
+		if (g_eTargetFilterVerbosity == TargetFilterVerbosity_All)
+		{
+			new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
+			DECREASING_LOOP(i,behaviours)
+			{
+				new Behaviour:behaviour = GetArrayBehaviour(behaviours, i);
+				RemoveBehaviourTargetFilter(behaviour);
+			}
+		}
+	}
+}
+
+stock RemoveBehaviourTargetFilter(Behaviour:behaviour)
+{
+	if (g_eTargetFilterVerbosity == TargetFilterVerbosity_All)
+	{
+		// Use behaviour full name as it prevents ambiguous targetting
+		new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
+		GetBehaviourFullName(behaviour, behaviourFullName, sizeof(behaviourFullName));
+
+		new String:targetFilter[BEHAVIOUR_FULL_NAME_MAX_LENGTH+2];
+
+		// Only those with the behaviour
+		Format(targetFilter, sizeof(targetFilter), "@%s", behaviourFullName);
+		RemoveMultiTargetFilter(targetFilter, BehaviourFullNameMultiTargetFilter);
+
+		// Only those without the behaviour
+		Format(targetFilter, sizeof(targetFilter), "@!%s", behaviourFullName);
+		RemoveMultiTargetFilter(targetFilter, BehaviourFullNameMultiTargetFilter);
+
+
+		// But for ease of use also include just the behaviour name, as the above is only in rare circumstances
+		GetBehaviourName(behaviour, behaviourFullName, sizeof(behaviourFullName));
+
+		// Only those with the behaviour
+		Format(targetFilter, sizeof(targetFilter), "@%s", behaviourFullName);
+		RemoveMultiTargetFilter(targetFilter, BehaviourMultiTargetFilter);
+
+		// Only those without the behaviour
+		Format(targetFilter, sizeof(targetFilter), "@!%s", behaviourFullName);
+		RemoveMultiTargetFilter(targetFilter, BehaviourMultiTargetFilter);
+	}
+}
+
+
+
+
+
+/*******************************************************************************
+ *	TARGET FILTERS
+ *******************************************************************************/
+
+public bool:BehaviourTypeMultiTargetFilter(const String:pattern[], Handle:clients)
+{
+	// Check if the pattern is with or without a behaviour of type
+	new bool:without = false;
+	new startIndex = 1;
+
+	if (pattern[1] == '!')
+	{
+		without = true;
+		startIndex++;
+	}
+
+	// Find the behaviour type
+	new BehaviourType:behaviourType = FindBehaviourType(pattern[startIndex]);
+
+	for (new i = 1; i <= MaxClients; i++)
+	{
+		if (IsClientInGame(i))
+		{
+			// Get all behaviours of behaviour type on the client
+			// this is not a direct accessor to internal data, so it must be closed
+			new Handle:behaviours = GetPlayerBehaviours(i, behaviourType);
+
+
+			// Add the target if he has a behaviour of type and we search for those with
+			// or add the target if he does not have a behaviour of type and we search for those without
+			if (GetArraySize(behaviours) > 0)
+			{
+				if (!without)
+				{
+					PushArrayCell(clients, i);
+				}
+			}
+			else if (without)
+			{
+				PushArrayCell(clients, i);
+			}
+			CloseHandle(behaviours);
+		}
+	}
+	return true;
+}
+
+public bool:BehaviourMultiTargetFilter(const String:pattern[], Handle:clients)
+{
+	// Check if the pattern is with or without a behaviour
+	new bool:without = false;
+	new startIndex = 1;
+
+	if (pattern[1] == '!')
+	{
+		without = true;
+		startIndex++;
+	}
+
+	// Find the behaviour, we have to do this since there could potentially be multiple
+	// behaviours with the same name, but over 2 behaviour types - not likely, but can still happen
+	new Handle:behavioursFromPattern = CreateArray();
+	new Handle:behaviourTypes = GetGameModeBehaviourTypes(g_hCurrentGameMode);
+	DECREASING_LOOP(i,behaviourTypes)
+	{
+		new BehaviourType:behaviourType = GetArrayBehaviourType(behaviourTypes, i);
+		new Behaviour:behaviour = FindBehaviour(behaviourType, pattern[startIndex]);
+
+		if (behaviour != INVALID_BEHAVIOUR)
+		{
+			PushArrayCell(behavioursFromPattern, behaviour);
+		}
+	}
+
+	for (new i = 1; i <= MaxClients; i++)
+	{
+		if (IsClientInGame(i))
+		{
+			// Get all behaviours of behaviour type on the client
+			// this is not a direct accessor to internal data, so it must be closed
+			new Handle:behaviours = GetPlayerBehaviours(i, INVALID_BEHAVIOUR_TYPE);
+			if (GetArraySize(behaviours) > 0)
+			{
+				new bool:hasBehaviour = false;
+
+				// loop through behavioursFromPattern since it has the highest chance of being with few elements
+				// Few elements == less FindValueInArray calls, which is lovely, no?
+				DECREASING_LOOP(j,behavioursFromPattern)
+				{
+					// Lets see if we can find the behaviour in the players behaviours
+					new Behaviour:behaviour = GetArrayBehaviour(behavioursFromPattern, j);
+					if (FindValueInArray(behaviours, behaviour) != -1)
+					{
+						hasBehaviour = true;
+						break;
+					}
+				}
+
+				// Add the target if he has the behaviour and we search for those with
+				// or add the target if he does not have the behaviour and we search for those without
+				if (hasBehaviour)
+				{
+					if (!without)
+					{
+						PushArrayCell(clients, i);
+					}
+				}
+				else if (without)
+				{
+					PushArrayCell(clients, i);
+				}
+			}
+			CloseHandle(behaviours);
+		}
+	}
+	return true;
+}
+
+public bool:BehaviourFullNameMultiTargetFilter(const String:pattern[], Handle:clients)
+{
+	// Check if the pattern is with or without a behaviour
+	new bool:without = false;
+	new startIndex = 1;
+
+	if (pattern[1] == '!')
+	{
+		without = true;
+		startIndex++;
+	}
+
+	// Find the behaviour
+	new Behaviour:behaviour = FindBehaviourByFullName(pattern[startIndex]);
+
+	// Get the players possessed by the behaviour
+	new Handle:possessedPlayers = GetBehaviourPossessedPlayers(behaviour);
+
+	if (without)
+	{
+		// Add those who aren't possessed by the behaviour to the client array
+		for (new i = 1; i <= MaxClients; i++)
+		{
+			if (IsClientInGame(i) && FindValueInArray(possessedPlayers, i) == -1)
+			{
+				PushArrayCell(clients, i);
+			}
+		}
+	}
+	else
+	{
+		// Copy the possessed players into the client array since 
+		// we're searching for those without the behaviour
+		DECREASING_LOOP(i,possessedPlayers)
+		{
+			new client = GetArrayCell(possessedPlayers, i);
+			PushArrayCell(clients, client);
+		}
+	}
+	return true;
+}
+
+
 
 /*******************************************************************************
  *	ADDITIONAL HELPERS
@@ -539,6 +956,9 @@ stock bool:AttemptStart(GameMode:gameMode)
 stock ReleasePlayerFromBehaviours(client)
 {
 	new Handle:behaviours = g_hPlayerArrayBehaviours[client];
+
+	DEBUG_PRINT2("Gamma:ReleasePlayerFromBehaviours(\"%N\") : Behaviour count (%d)",client,GetArraySize(behaviours));
+
 	DECREASING_LOOP(j,behaviours)
 	{
 		BehaviourReleasePlayer(GetArrayBehaviour(behaviours, j), client);
@@ -663,6 +1083,15 @@ public Native_Gamma_GetGameModeBehaviourTypes(Handle:plugin, numParams)
 	return _:TransferHandleOwnership(behaviourTypes, plugin);
 }
 
+public Native_Gamma_ForceStopGameMode(Handle:plugin, numParams)
+{
+	if (plugin != g_hCurrentGameModePlugin)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call Gamma_ForceStopGameMode");
+	}
+	StopGameMode(true);
+	return 1;
+}
 
 /*******************************************************************************
  *	BEHAVIOUR TYPE NATIVES
@@ -875,7 +1304,7 @@ public Native_Gamma_GiveBehaviour(Handle:plugin, numParams)
 	new client = GetNativeCell(1);
 	new Behaviour:behaviour = Behaviour:GetNativeCell(2);
 
-	if (g_hGameModePlugin != plugin)
+	if (g_hCurrentGameModePlugin != plugin)
 	{
 		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call Gamma_GiveBehaviour");
 	}
@@ -897,7 +1326,7 @@ public Native_Gamma_TakeBehaviour(Handle:plugin, numParams)
 	new client = GetNativeCell(1);
 	new Behaviour:behaviour = Behaviour:GetNativeCell(2);
 
-	if (g_hGameModePlugin != plugin)
+	if (g_hCurrentGameModePlugin != plugin)
 	{
 		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call Gamma_TakeBehaviour");
 	}
@@ -1443,7 +1872,7 @@ stock DestroyGameMode(GameMode:gameMode)
  */
 
 // Creates a behaviour type from a plugin and name
-stock BehaviourType:CreateBehaviourType(Handle:plugin, String:name[], &BehaviourTypeCreationError:error)
+stock BehaviourType:CreateBehaviourType(Handle:plugin, const String:name[], &BehaviourTypeCreationError:error)
 {
 	DEBUG_PRINT2("Gamma:CreateBehaviourType(%X, \"%s\")", plugin, name);
 
@@ -1482,7 +1911,7 @@ stock BehaviourType:CreateBehaviourType(Handle:plugin, String:name[], &Behaviour
 }
 
 // Searches for a behaviour type from a name
-stock BehaviourType:FindBehaviourType(String:name[])
+stock BehaviourType:FindBehaviourType(const String:name[])
 {
 	new BehaviourType:behaviourType;
 	if (GetTrieValue(g_hTrieBehaviourTypes, name, behaviourType))
@@ -1710,6 +2139,12 @@ stock Behaviour:CreateBehaviour(Handle:plugin, BehaviourType:type, const String:
 	SetTrieValue(g_hTrieBehaviours, behaviourFullName, behaviour);
 	AddBehaviourTypeBehaviour(type, Behaviour:behaviour);
 
+	// If current game mode == behaviour types owner, we should add the behaviour as a target filter as well!
+	if (g_hCurrentGameMode == GetBehaviourTypeOwner(type))
+	{
+		AddBehaviourTargetFilter(Behaviour:behaviour);
+	}
+
 	error = BehaviourCreationError_None;
 	return Behaviour:behaviour;
 }
@@ -1720,8 +2155,14 @@ stock Behaviour:FindBehaviour(BehaviourType:behaviourType, const String:name[])
 	new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
 	GetBehaviourFullNameEx(behaviourType, name, behaviourFullName, sizeof(behaviourFullName));
 
+	return FindBehaviourByFullName(behaviourFullName);
+}
+
+// Searches for a behaviour by full name (a full name includes the behaviour type name)
+stock Behaviour:FindBehaviourByFullName(const String:fullname[])
+{
 	new Behaviour:behaviour;
-	if (GetTrieValue(g_hTrieBehaviours, behaviourFullName, behaviour))
+	if (GetTrieValue(g_hTrieBehaviours, fullname, behaviour))
 	{
 		return behaviour;
 	}
@@ -1830,12 +2271,12 @@ stock BehaviourPossessPlayer(Behaviour:behaviour, client)
 	{
 		#if defined DEBUG
 
-		new String:behaviourName[BEHAVIOUR_NAME_MAX_LENGTH];
-		GetBehaviourName(behaviour, behaviourName, sizeof(behaviourName));
+		new String:behaviourFullName[BEHAVIOUR_NAME_MAX_LENGTH];
+		GetBehaviourFullName(behaviour, behaviourFullName, sizeof(behaviourFullName));
 
 		#endif
 
-		DEBUG_PRINT2("Gamma:BehaviourPossessPlayer(\"%s\", \"%N\")", behaviourName, client);
+		DEBUG_PRINT2("Gamma:BehaviourPossessPlayer(\"%s\", \"%N\")", behaviourFullName, client);
 
 		// Add the behaviour to the clients behaviour list
 		PushArrayCell(g_hPlayerArrayBehaviours[client], behaviour);
@@ -1846,7 +2287,7 @@ stock BehaviourPossessPlayer(Behaviour:behaviour, client)
 		new Function:onPlayerRunCmd = GetFunctionInBehaviour(behaviour, "Gamma_OnBehaviourPlayerRunCmd");
 		if (onPlayerRunCmd != INVALID_FUNCTION)
 		{
-			DEBUG_PRINT2("Gamma:BehaviourPossessPlayer(\"%s\", \"%N\") : Has Gamma_OnBehaviourPlayerRunCmd", behaviourName, client);
+			DEBUG_PRINT2("Gamma:BehaviourPossessPlayer(\"%s\", \"%N\") : Has Gamma_OnBehaviourPlayerRunCmd", behaviourFullName, client);
 
 			AddToForward(g_hPlayerPrivateBehaviourPlayerRunCmd[client], plugin, onPlayerRunCmd);
 			g_bClientHasPrivateBehaviourPlayerRunCmd[client] = true;
@@ -1871,12 +2312,12 @@ stock BehaviourReleasePlayer(Behaviour:behaviour, client)
 	{
 		#if defined DEBUG
 
-		new String:behaviourName[BEHAVIOUR_NAME_MAX_LENGTH];
-		GetBehaviourName(behaviour, behaviourName, sizeof(behaviourName));
+		new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
+		GetBehaviourFullName(behaviour, behaviourFullName, sizeof(behaviourFullName));
 
 		#endif
 
-		DEBUG_PRINT2("Gamma:BehaviourReleasePlayer(\"%s\", \"%N\")", behaviourName, client);
+		DEBUG_PRINT2("Gamma:BehaviourReleasePlayer(\"%s\", \"%N\")", behaviourFullName, client);
 
 		// Remove behaviour from the clients behaviour list
 		RemoveFromArray(g_hPlayerArrayBehaviours[client], index);
@@ -1887,7 +2328,7 @@ stock BehaviourReleasePlayer(Behaviour:behaviour, client)
 		new Function:onPlayerRunCmd = GetFunctionInBehaviour(behaviour, "Gamma_OnBehaviourPlayerRunCmd");
 		if (onPlayerRunCmd != INVALID_FUNCTION)
 		{
-			DEBUG_PRINT2("Gamma:BehaviourReleasePlayer(\"%s\", \"%N\") : Has Gamma_OnBehaviourPlayerRunCmd", behaviourName, client);
+			DEBUG_PRINT2("Gamma:BehaviourReleasePlayer(\"%s\", \"%N\") : Has Gamma_OnBehaviourPlayerRunCmd", behaviourFullName, client);
 
 			RemoveFromForward(g_hPlayerPrivateBehaviourPlayerRunCmd[client], plugin, onPlayerRunCmd);
 			g_bClientHasPrivateBehaviourPlayerRunCmd[client] = (GetForwardFunctionCount(g_hPlayerPrivateBehaviourPlayerRunCmd[client]) != 0);
@@ -1920,10 +2361,11 @@ stock Handle:GetPlayerBehaviours(client, BehaviourType:filter)
 		new count = GetArraySize(playerBehaviours);
 		for (new i = 0; i < count; i++)
 		{
+			// Now push all playerBehaviours that match the filter into behaviours
 			new Behaviour:behaviour = GetArrayBehaviour(playerBehaviours, i);
 			if (GetBehaviourType(behaviour) == filter)
 			{
-				PushArrayCell(playerBehaviours, behaviour);
+				PushArrayCell(behaviours, behaviour);
 			}
 		}
 	}
@@ -1952,17 +2394,10 @@ stock Function:GetFunctionInBehaviour(Behaviour:behaviour, const String:function
 // Destroys the behaviour, freeing all it's resources
 stock DestroyBehaviour(Behaviour:behaviour)
 {
-	#if defined DEBUG
-
-	new String:behaviourName[BEHAVIOUR_NAME_MAX_LENGTH];
-	GetBehaviourName(behaviour, behaviourName, sizeof(behaviourName));
-
-	#endif
-
 	new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
 	GetBehaviourFullName(behaviour, behaviourFullName, sizeof(behaviourFullName));
 
-	DEBUG_PRINT2("Gamma:DestroyBehaviour(\"%s\") : Full name (%s)", behaviourName, behaviourFullName);
+	DEBUG_PRINT1("Gamma:DestroyBehaviour(\"%s\")", behaviourFullName);
 
 	// Remove from the global array and trie
 	RemoveFromArray(g_hArrayBehaviours, FindValueInArray(g_hArrayBehaviours, behaviour));
@@ -1970,13 +2405,19 @@ stock DestroyBehaviour(Behaviour:behaviour)
 	RemoveBehaviourTypeBehaviour(GetBehaviourType(behaviour), behaviour);
 
 	// Take away the behaviour from all possessed players
-	DEBUG_PRINT1("Gamma:DestroyBehaviour(\"%s\") : Releasing players", behaviourName);
+	DEBUG_PRINT1("Gamma:DestroyBehaviour(\"%s\") : Releasing players", behaviourFullName);
 	new Handle:possessedPlayers = GetBehaviourPossessedPlayers(behaviour);
 	DECREASING_LOOP(i,possessedPlayers)
 	{
 		BehaviourReleasePlayer(behaviour, GetArrayCell(possessedPlayers, i));
 	}
-	DEBUG_PRINT1("Gamma:DestroyBehaviour(\"%s\") : Released players", behaviourName);
+	DEBUG_PRINT1("Gamma:DestroyBehaviour(\"%s\") : Released players", behaviourFullName);
+
+	// If current game mode == behaviour types owner, we should remove from target filter
+	if (g_hCurrentGameMode == GetBehaviourTypeOwner(GetBehaviourType(behaviour)))
+	{
+		RemoveBehaviourTargetFilter(behaviour);
+	}
 
 	// Then close the possessed players and behaviour trie handles
 	CloseHandle(possessedPlayers);
