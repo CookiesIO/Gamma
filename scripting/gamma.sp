@@ -2480,7 +2480,7 @@ stock bool:ValidateName(const String:name[])
 	for(new i = 0; i < length; i++)
 	{
 		new char = name[i];
-		if (!IsCharAlpha(char) || !IsCharNumeric(char) || char != '_')
+		if (!(IsCharAlpha(char) || IsCharNumeric(char) || char == '_'))
 		{
 			// Invalid name, names may only contains numbers, underscores and normal letters
 			return false;
