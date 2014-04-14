@@ -103,27 +103,33 @@ public Plugin:myinfo =
  *	CREATION ERROR CODES DEFINITIONS
  *******************************************************************************/
 
+// Error codes for CreateGameMode()
 enum GameModeCreationError
 {
 	GameModeCreationError_None,
-	GameModeCreationError_AlreadyExists,
-	GameModeCreationError_PluginAlreadyHasGameMode,
-	GameModeCreationError_CreationFailed,
+	GameModeCreationError_InvalidName,				// Invalid name for a game mode
+	GameModeCreationError_AlreadyExists,			// A game mode with the same name already exists
+	GameModeCreationError_PluginAlreadyHasGameMode,	// The plugin registering a game mode already has a game mode registered
+	GameModeCreationError_CreationFailed,			// An error was thrown Gamma_OnCreateGameMode
 }
 
+// Error codes for CreateBehaviourType()
 enum BehaviourTypeCreationError
 {
 	BehaviourTypeCreationError_None,
-	BehaviourTypeCreationError_AlreadyExists,
-	BehaviourTypeCreationError_GameModeNotInCreation,
+	BehaviourTypeCreationError_InvalidName,				// Invalid name for a behaviour type
+	BehaviourTypeCreationError_AlreadyExists,			// A behaviour type with the same name already exists
+	BehaviourTypeCreationError_GameModeNotInCreation,	// The game mode is not in creation AKA in the Gamma_OnCreateGameMode function
 }
 
+// Error codes for CreateBehaviour()
 enum BehaviourCreationError
 {
 	BehaviourCreationError_None,
-	BehaviourCreationError_AlreadyExists,
-	BehaviourCreationError_RequirementsNotMet,
-	BehaviourCreationError_PluginAlreadyHasForGameMode,
+	BehaviourCreationError_InvalidName,					// Invalid name for a behaviour
+	BehaviourCreationError_AlreadyExists,				// A behaviour with the same name and behaviour type already exists
+	BehaviourCreationError_RequirementsNotMet,			// The behaviour did not meet the requirements of the behaviour type
+	BehaviourCreationError_PluginAlreadyHasForGameMode,	// The same plugin tried to register a second behaviour in the same game mode
 }
 
 /*******************************************************************************
@@ -175,16 +181,16 @@ enum TargetFilterVerbosity
 new Handle:g_hArrayKnownPlugins;
 
 // Game modes data
-new Handle:g_hArrayGameModes;				// List<GameMode>
-new Handle:g_hTrieGameModes;				// Map<GameMode.Name, GameMode>
+new Handle:g_hArrayGameModes;		// List<GameMode>
+new Handle:g_hTrieGameModes;		// Map<GameMode.Name, GameMode>
 
 // Behaviour types data
-new Handle:g_hArrayBehaviourTypes;			// List<BehaviourType>
-new Handle:g_hTrieBehaviourTypes;			// Map<BehaviourType.Name, BehaviourType>
+new Handle:g_hArrayBehaviourTypes;	// List<BehaviourType>
+new Handle:g_hTrieBehaviourTypes;	// Map<BehaviourType.Name, BehaviourType>
 
 // Behaviour data
-new Handle:g_hArrayBehaviours;				// List<Behaviour>
-new Handle:g_hTrieBehaviours;				// Map<BehaviourType.Name+':'+Behaviour.Name, Behaviour>
+new Handle:g_hArrayBehaviours;		// List<Behaviour>
+new Handle:g_hTrieBehaviours;		// Map<BehaviourType.Name+':'+Behaviour.Name, Behaviour>
 
 // Client data
 new Handle:g_hPlayerArrayBehaviours[MAXPLAYERS+1];					// List<Behaviour>[MAXPLAYERS+1]
@@ -197,22 +203,22 @@ new GameMode:g_hGameModeInitializing;
 new Handle:g_hGameModeInitializingPlugin;
 
 // State variables
-new bool:g_bIsActive;
-new Handle:g_hCurrentGameModePlugin;
-new GameMode:g_hCurrentGameMode;
+new bool:g_bIsActive;					// Is gamma active?
+new Handle:g_hCurrentGameModePlugin;	// Active game mode's plugin
+new GameMode:g_hCurrentGameMode;		// Active game mode
 
 // Target filter verbosity
-new TargetFilterVerbosity:g_eTargetFilterVerbosity;
+new TargetFilterVerbosity:g_eTargetFilterVerbosity;	// Verbosity of target filters added (none, behaviour types only or behaviour types and behaviours)
 
 // Global forwards
-new Handle:g_hGlobal_OnGameModeCreated;				//	Gamma_OnGameModeCreated(GameMode:gameMode)
-new Handle:g_hGlobal_OnGameModeDestroyed;			//	Gamma_OnGameModeDestroyed(GameMode:gameMode)
+new Handle:g_hGlobal_OnGameModeCreated;				// Gamma_OnGameModeCreated(GameMode:gameMode)
+new Handle:g_hGlobal_OnGameModeDestroyed;			// Gamma_OnGameModeDestroyed(GameMode:gameMode)
 
-new Handle:g_hGlobal_OnGameModeStarted;				//	Gamma_OnGameModeStarted(GameMode:gameMode)
-new Handle:g_hGlobal_OnGameModeEnded;				//	Gamma_OnGameModeEnded(GameMode:gameMode)
+new Handle:g_hGlobal_OnGameModeStarted;				// Gamma_OnGameModeStarted(GameMode:gameMode)
+new Handle:g_hGlobal_OnGameModeEnded;				// Gamma_OnGameModeEnded(GameMode:gameMode)
 
-new Handle:g_hGlobal_OnBehaviourPossessedClient;	//	Gamma_OnClientPossessedByBehaviour(client, Behaviour:behaviour)
-new Handle:g_hGlobal_OnBehaviourReleasedClient;		//	Gamma_OnClientReleasedFromBehaviour(client, Behaviour:behaviour)
+new Handle:g_hGlobal_OnBehaviourPossessedClient;	// Gamma_OnClientPossessedByBehaviour(client, Behaviour:behaviour)
+new Handle:g_hGlobal_OnBehaviourReleasedClient;		// Gamma_OnClientReleasedFromBehaviour(client, Behaviour:behaviour)
 
 // Cvars
 new Handle:g_hCvarEnabled;	// gamma_enabled "<0|1>"
@@ -223,6 +229,11 @@ new Handle:g_hCvarGameModeSelectionMode;	// gamma_gamemode_selection_mode "<1|2|
 
 // Target filters verbosity, 0=no target filters, 1=behaviour type filters, 2=behaviour type and behaviour target filters
 new Handle:g_hCvarTargetFilters;	// gamma_target_filters "<0|1|2>"
+
+// Safe mode, disables use of custom hooks and returns to safer, but less "optimal" hooks
+// This is only checked in OnConfigsExecuted as there's no point in doing it later
+// This is only planned - we don't have any hooks yet, so it's existance is pointless atm - but wont be for long
+//new Handle:g_hCvarSafeMode;	// gamma_safe_mode "<0|1>"
 
 
 
@@ -324,9 +335,10 @@ public OnPluginStart()
 
 	// Cvars
 	g_hCvarEnabled = CreateConVar("gamma_enabled", "1", "Whether or not gamma is enabled (0|1)", FCVAR_PLUGIN, true, 0.0, true, 1.0);
-	g_hCvarGameMode = CreateConVar("gamma_gamemode", "", "Name of the game mode to play", FCVAR_PLUGIN|FCVAR_NOTIFY);
+	g_hCvarGameMode = CreateConVar("gamma_gamemode", "", "Name of the game mode to play", FCVAR_PLUGIN);
 	g_hCvarGameModeSelectionMode = CreateConVar("gamma_gamemode_selection_mode", "3", "Game mode selection method, 1=Strictly by cvar, 2=First able to start, 3=Attempt by cvar then first able to start", FCVAR_PLUGIN, true, 1.0, true, 3.0);
 	g_hCvarTargetFilters = CreateConVar("gamma_target_filters", "1", "Target filter verbosity, 0=No target filters, 1=Behaviour type only filters, 2=Behaviour type and behaviour filters", FCVAR_PLUGIN, true, 0.0, true, 2.0);
+	//g_hCvarSafeMode = CreateConVar("gamma_safe_mode", "0", "Checked OnConfigsExecuted to see determine whether to use safer, less optimal hooks - only checked once", FCVAR_PLUGIN);
 
 	// Version cvar
 	CreateConVar("gamma_version", PLUGIN_VERSION, "Version of Gamma Game Mode Manager", FCVAR_SPONLY|FCVAR_NOTIFY|FCVAR_REPLICATED|FCVAR_DONTRECORD|FCVAR_PLUGIN);
@@ -344,6 +356,8 @@ public OnPluginStart()
 			OnClientPutInServer(i);
 		}
 	}
+
+	//AutoExecConfig();
 }
 
 public OnPluginEnd()
@@ -360,6 +374,12 @@ public OnPluginEnd()
 	}
 }
 
+/*
+public OnConfigsExecuted()
+{
+
+}
+*/
 
 
 
@@ -1025,18 +1045,22 @@ public Native_Gamma_GetCurrentGameMode(Handle:plugin, numParams)
 public Native_Gamma_RegisterGameMode(Handle:plugin, numParams)
 {
 	// Get the game mode name
-	new String:name[GAME_MODE_NAME_MAX_LENGTH];
-	GetNativeString(1, name, sizeof(name));
+	new String:gameModeName[GAME_MODE_NAME_MAX_LENGTH];
+	GetNativeString(1, gameModeName, sizeof(gameModeName));
 
 	new GameModeCreationError:error;
-	new GameMode:gameMode = CreateGameMode(plugin, name, error);
+	new GameMode:gameMode = CreateGameMode(plugin, gameModeName, error);
 
 	// throw error, if there's any
 	switch (error)
 	{
+		case BehaviourCreationError_InvalidName:
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Game mode name (%s) is invalid", gameModeName);
+		}
 		case GameModeCreationError_AlreadyExists:
 		{
-			return ThrowNativeError(SP_ERROR_NATIVE, "A game mode with the same name already exists (%s)", name);
+			return ThrowNativeError(SP_ERROR_NATIVE, "A game mode with the same name already exists (%s)", gameModeName);
 		}
 		case GameModeCreationError_PluginAlreadyHasGameMode:
 		{
@@ -1107,6 +1131,11 @@ public Native_Gamma_CreateBehaviourType(Handle:plugin, numParams)
 	// throw errors, if we have any
 	switch (error)
 	{
+		case BehaviourCreationError_InvalidName:
+		{
+			g_bGameModeInitializationFailed = true;
+			return ThrowNativeError(SP_ERROR_NATIVE, "Behaviour type name (%s) is invalid", behaviourTypeName);
+		}
 		case BehaviourTypeCreationError_AlreadyExists:
 		{
 			g_bGameModeInitializationFailed = true;
@@ -1185,6 +1214,10 @@ public Native_Gamma_RegisterBehaviour(Handle:plugin, numParams)
 	// Throw error, if there's any
 	switch (error)
 	{
+		case BehaviourCreationError_InvalidName:
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Behaviour name (%s) is invalid", behaviourName);
+		}
 		case BehaviourCreationError_AlreadyExists:
 		{
 			return ThrowNativeError(SP_ERROR_NATIVE, "Behaviour of same type and name already exists");
@@ -1696,16 +1729,23 @@ stock GameMode:CreateGameMode(Handle:plugin, const String:name[], &GameModeCreat
 {
 	DEBUG_PRINT2("Gamma:CreateGameMode(%X, \"%s\")", plugin, name);
 
+	// Validate behaviour name
+	if (!ValidateName(name))
+	{
+		error = GameModeCreationError_InvalidName;
+		return INVALID_GAME_MODE;
+	}
+
+	// Has the plugin has already registered a game mode?
 	if (FindGameModeByPlugin(plugin) != INVALID_GAME_MODE)
 	{
-		// The plugin has already registered a game mode
 		error = GameModeCreationError_PluginAlreadyHasGameMode;
 		return INVALID_GAME_MODE;
 	}
 
+	// Does another existing game mode with this name?
 	if (FindGameMode(name) != INVALID_GAME_MODE)
 	{
-		// Another existing game mode with this name
 		error = GameModeCreationError_AlreadyExists;
 		return INVALID_GAME_MODE;
 	}
@@ -1882,6 +1922,13 @@ stock BehaviourType:CreateBehaviourType(Handle:plugin, const String:name[], &Beh
 	if (g_hGameModeInitializingPlugin != plugin)
 	{
 		error = BehaviourTypeCreationError_GameModeNotInCreation;
+		return INVALID_BEHAVIOUR_TYPE;
+	}
+
+	// Validate behaviour name
+	if (!ValidateName(name))
+	{
+		error = BehaviourTypeCreationError_InvalidName;
 		return INVALID_BEHAVIOUR_TYPE;
 	}
 
@@ -2093,6 +2140,13 @@ stock Behaviour:CreateBehaviour(Handle:plugin, BehaviourType:type, const String:
 	#endif
 
 	DEBUG_PRINT3("Gamma:CreateBehaviour(%X, \"%s\", \"%s\")", plugin, behaviourTypeName, name);
+
+	// Validate behaviour name
+	if (!ValidateName(name))
+	{
+		error = BehaviourCreationError_InvalidName;
+		return INVALID_BEHAVIOUR;
+	}
 
 	// A behaviour can only be registered if there's no behaviour with the same name and behaviour type
 	if (FindBehaviour(type, name) != INVALID_BEHAVIOUR)
@@ -2413,6 +2467,31 @@ stock DestroyBehaviour(Behaviour:behaviour)
 	CloseHandle(possessedPlayers);
 	CloseHandle(Handle:behaviour);
 }
+
+
+/*******************************************************************************
+ *	GAME MODE/BEHAVIOUR TYPE/BEHAVIOUR HELPERS
+ *******************************************************************************/
+
+// Checks whether or not the input string contains illegal characters for a game mode/behaviour type/begaviour name
+stock bool:ValidateName(const String:name[])
+{
+	new length = strlen(name);
+	for(new i = 0; i < length; i++)
+	{
+		new char = name[i];
+		if (!IsCharAlpha(char) || !IsCharNumeric(char) || char != '_')
+		{
+			// Invalid name, names may only contains numbers, underscores and normal letters
+			return false;
+		}
+	}
+	// A name is, of course, only valid if it's 1 or more chars long, though longer is recommended
+	return (length > 0);
+}
+
+
+
 
 
 /*******************************************************************************
