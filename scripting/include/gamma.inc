@@ -567,6 +567,56 @@ native bool:Gamma_GetBehaviourString(Behaviour:behaviour, const String:property[
 
 
 
+
+/*******************************************************************************
+ *	STOCKS				
+ *******************************************************************************/
+
+/**
+ *	Retrives a game mode from an array
+ *
+ *	@param array	Array handle
+ *	@param index	Index in array
+ *	@param block	Optionally specify which block to read from (useful if the blocksize > 0)
+ *	@return			Game mode read
+ *	@error			Invalid Handle, invalid index, or invalid block
+ */
+stock GameMode:GetArrayGameMode(Handle:array, index, block=0)
+{
+	return GameMode:GetArrayCell(array, index, block);
+}
+
+/**
+ *	Retrives a behaviour type from an array
+ *
+ *	@param array	Array handle
+ *	@param index	Index in array
+ *	@param block	Optionally specify which block to read from (useful if the blocksize > 0)
+ *	@return			Behaviour type read
+ *	@error			Invalid Handle, invalid index, or invalid block
+ */
+stock BehaviourType:GetArrayBehaviourType(Handle:array, index, block=0)
+{
+	return BehaviourType:GetArrayCell(array, index, block);
+}
+
+/**
+ *	Retrives a behaviour from an array
+ *
+ *	@param array	Array handle
+ *	@param index	Index in array
+ *	@param block	Optionally specify which block to read from (useful if the blocksize > 0)
+ *	@return			Behaviour read
+ *	@error			Invalid Handle, invalid index, or invalid block
+ */
+stock Behaviour:GetArrayBehaviour(Handle:array, index, block=0)
+{
+	return Behaviour:GetArrayCell(array, index, block);
+}
+
+
+
+
 /*******************************************************************************
  *	SPECIAL
  *******************************************************************************/

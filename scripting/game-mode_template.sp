@@ -55,7 +55,7 @@ public Gamma_OnGameModeStart()
 		// Give a random behaviour to all clients on round start!
 		if (IsClientInGame(i))
 		{
-			new Behaviour:behaviour = Behaviour:GetArrayCell(behaviours, GetRandomInt(0, GetArraySize(behaviours) - 1));
+			new Behaviour:behaviour = GetArrayBehaviour(behaviours, GetRandomInt(0, GetArraySize(behaviours) - 1));
 			Gamma_GiveBehaviour(i, behaviour);
 
 			// Also, now that the player is given the behaviour we want to call MyFunctionRequirement

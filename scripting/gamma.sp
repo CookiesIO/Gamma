@@ -160,11 +160,12 @@ enum BehaviourCreationError
 #define DEBUG_PRINT6(%1,%2,%3,%4,%5,%6,%7)
 #endif
 
+// Verbosity of the added target filters
 enum TargetFilterVerbosity
 {
 	TargetFilterVerbosity_None,
 	TargetFilterVerbosity_BehaviourTypeOnly,
-	TargetFilterVerbosity_All
+	TargetFilterVerbosity_BehaviourTypesAndBehaviours
 }
 
 
@@ -675,7 +676,7 @@ stock AddBehaviourTypeTargetFilter(BehaviourType:behaviourType)
 		AddMultiTargetFilter(targetFilter, BehaviourTypeMultiTargetFilter, targetFilter, false);
 
 		// Add behaviour target filters if the verbosity says yes!
-		if (g_eTargetFilterVerbosity == TargetFilterVerbosity_All)
+		if (g_eTargetFilterVerbosity == TargetFilterVerbosity_BehaviourTypesAndBehaviours)
 		{
 			new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
 			DECREASING_LOOP(i,behaviours)
@@ -689,7 +690,7 @@ stock AddBehaviourTypeTargetFilter(BehaviourType:behaviourType)
 
 stock AddBehaviourTargetFilter(Behaviour:behaviour)
 {
-	if (g_eTargetFilterVerbosity == TargetFilterVerbosity_All)
+	if (g_eTargetFilterVerbosity == TargetFilterVerbosity_BehaviourTypesAndBehaviours)
 	{
 		// Use behaviour full name as it prevents ambiguous targetting
 		new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
@@ -722,7 +723,7 @@ stock AddBehaviourTargetFilter(Behaviour:behaviour)
 stock RemoveBehaviourTypeTargetFilter(BehaviourType:behaviourType)
 {
 	if (g_eTargetFilterVerbosity == TargetFilterVerbosity_BehaviourTypeOnly ||
-		g_eTargetFilterVerbosity == TargetFilterVerbosity_All)
+		g_eTargetFilterVerbosity == TargetFilterVerbosity_BehaviourTypesAndBehaviours)
 	{
 		new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
 		GetBehaviourTypeName(behaviourType, behaviourTypeName, sizeof(behaviourTypeName));
@@ -738,7 +739,7 @@ stock RemoveBehaviourTypeTargetFilter(BehaviourType:behaviourType)
 		RemoveMultiTargetFilter(targetFilter, BehaviourTypeMultiTargetFilter);
 
 		// Remove behaviour target filters if the verbosity says so
-		if (g_eTargetFilterVerbosity == TargetFilterVerbosity_All)
+		if (g_eTargetFilterVerbosity == TargetFilterVerbosity_BehaviourTypesAndBehaviours)
 		{
 			new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
 			DECREASING_LOOP(i,behaviours)
@@ -752,7 +753,7 @@ stock RemoveBehaviourTypeTargetFilter(BehaviourType:behaviourType)
 
 stock RemoveBehaviourTargetFilter(Behaviour:behaviour)
 {
-	if (g_eTargetFilterVerbosity == TargetFilterVerbosity_All)
+	if (g_eTargetFilterVerbosity == TargetFilterVerbosity_BehaviourTypesAndBehaviours)
 	{
 		// Use behaviour full name as it prevents ambiguous targetting
 		new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
@@ -1767,12 +1768,6 @@ stock GameMode:FindGameModeByPlugin(Handle:plugin)
 	return INVALID_GAME_MODE;
 }
 
-// Gets the game mode at index
-stock GameMode:GetArrayGameMode(Handle:array, index)
-{
-	return GameMode:GetArrayCell(array, index);
-}
-
 // Gets a game modes plugin, the one that registered the game mode
 stock Handle:GetGameModePlugin(GameMode:gameMode)
 {
@@ -1919,12 +1914,6 @@ stock BehaviourType:FindBehaviourType(const String:name[])
 		return behaviourType;
 	}
 	return INVALID_BEHAVIOUR_TYPE;
-}
-
-// Gets the behaviour type at an index in an ADT array
-stock BehaviourType:GetArrayBehaviourType(Handle:array, index)
-{
-	return BehaviourType:GetArrayCell(array, index);
 }
 
 // Gets the plugin that made the behaviour type
@@ -2198,12 +2187,6 @@ stock Behaviour:FindBehaviourInGameModeByPlugin(GameMode:gameMode, Handle:plugin
 		}
 	}
 	return INVALID_BEHAVIOUR;
-}
-
-// Gets the behaviour at an index in an ADT array
-stock Behaviour:GetArrayBehaviour(Handle:array, index)
-{
-	return Behaviour:GetArrayCell(array, index);
 }
 
 // Gets the full name of the behaviour (BehaviourTypeName:BehaviourName)
