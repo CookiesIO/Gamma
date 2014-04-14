@@ -130,9 +130,6 @@ enum BehaviourCreationError
  *	MISC DEFINITIONS
  *******************************************************************************/
 
-// The maximum size of the full name of a behaviour
-#define BEHAVIOUR_FULL_NAME_MAX_LENGTH BEHAVIOUR_TYPE_NAME_MAX_LENGTH+BEHAVIOUR_NAME_MAX_LENGTH
-
 // Maximum length of a symbol in SourcePawn including the NULL terminator
 #define SYMBOL_MAX_LENGTH 64
 
@@ -257,6 +254,7 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 	CreateNative("Gamma_RegisterBehaviour", Native_Gamma_RegisterBehaviour);
 	CreateNative("Gamma_GetBehaviourType", Native_Gamma_GetBehaviourType);
 	CreateNative("Gamma_GetBehaviourName", Native_Gamma_GetBehaviourName);
+	CreateNative("Gamma_GetBehaviourFullName", Native_Gamma_GetBehaviourFullName);
 	CreateNative("Gamma_GetPossessedPlayers", Native_Gamma_GetPossessedPlayers);
 	CreateNative("Gamma_AddBehaviourFunctionToForward", Native_Gamma_AddBehaviourFunctionToForward);
 	CreateNative("Gamma_RemoveBehaviourFunctionFromForward", Native_Gamma_RemoveBehaviourFunctionFromForward);
@@ -1217,6 +1215,15 @@ public Native_Gamma_GetBehaviourName(Handle:plugin, numParams)
 	GetBehaviourName(behaviour, behaviourName, sizeof(behaviourName));
 
 	SetNativeString(2, behaviourName, GetNativeCell(3));
+}
+
+public Native_Gamma_GetBehaviourFullName(Handle:plugin, numParams)
+{
+	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
+	new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
+	GetBehaviourFullName(behaviour, behaviourFullName, sizeof(behaviourFullName));
+
+	SetNativeString(2, behaviourFullName, GetNativeCell(3));
 }
 
 public Native_Gamma_GetPossessedPlayers(Handle:plugin, numParams)

@@ -14,6 +14,9 @@
 // Maximum length a behaviour name can be, including the NULL terminator
 #define BEHAVIOUR_NAME_MAX_LENGTH 32
 
+// The maximum size of the full name of a behaviour
+#define BEHAVIOUR_FULL_NAME_MAX_LENGTH BEHAVIOUR_TYPE_NAME_MAX_LENGTH+BEHAVIOUR_NAME_MAX_LENGTH
+
 /*******************************************************************************
  *	TYPE ENUMS					
  *******************************************************************************/
@@ -278,6 +281,16 @@ native BehaviourType:Gamma_GetBehaviourType(Behaviour:behaviour);
  *	@noreturn
  */
 native Gamma_GetBehaviourName(Behaviour:behaviour, String:buffer[], maxlen);
+
+/**
+ *	Gets the full name of a behaviour
+ *
+ *	@param behaviour	Behaviour to get the full name from
+ *	@param buffer		Buffer to store the behaviours full name in
+ *	@param maxlen		Maximum length of the string buffer (includes NULL terminator)
+ *	@noreturn
+ */
+native Gamma_GetBehaviourFullName(Behaviour:behaviour, String:buffer[], maxlen);
 
 /**
  *	Gets the players possessed by the behaviour
@@ -686,6 +699,7 @@ public __pl_gamma_SetNTVOptional()
 	MarkNativeAsOptional("Gamma_RegisterBehaviour");
 	MarkNativeAsOptional("Gamma_GetBehaviourType");
 	MarkNativeAsOptional("Gamma_GetBehaviourName");
+	MarkNativeAsOptional("Gamma_GetBehaviourFullName");
 	MarkNativeAsOptional("Gamma_GetPossessedPlayers");
 	MarkNativeAsOptional("Gamma_AddBehaviourFunctionToForward");
 	MarkNativeAsOptional("Gamma_RemoveBehaviourFunctionFromForward");
