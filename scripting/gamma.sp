@@ -3,6 +3,9 @@
 #include <sourcemod>
 #include <sdkhooks>
 #include <gamma>
+
+// DHooks not required, but recommended
+#undef REQUIRE_EXTENSIONS
 #include <dhooks>
 
 
@@ -266,6 +269,9 @@ new Handle:g_hCvarGameModeSelectionMode;	// gamma_gamemode_selection_mode "<1|2|
 // Target filters verbosity, 0=no target filters, 1=behaviour type filters, 2=behaviour type and behaviour target filters
 new Handle:g_hCvarTargetFilters;	// gamma_target_filters "<0|1|2>"
 
+// Extension state variables
+new bool:g_bDHooksAvailable;
+
 
 /*******************************************************************************
  *	GAME SPECIFIC INCLUDES
@@ -340,6 +346,10 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 
 public OnPluginStart()
 {
+	// Check if our optional extensions are available, dhooks is a bit complex
+	// with regards to plug'n'play in gamma's case, so we only check during plugin start - for now
+	g_bDHooksAvailable = LibraryExists("dhooks");
+
 	// Get our game, yay
 	new String:gameFolder[10];
 	GetGameFolderName(gameFolder, sizeof(gameFolder));
@@ -354,18 +364,8 @@ public OnPluginStart()
 		g_eRunningGame = Game_Unknown;
 	}
 
-
-	// Load game data!
-	new Handle:gc = LoadGameConfigFile("gamma.games");
-	if (gc == INVALID_HANDLE)
-	{
-		SetFailState("Unable to load gamedata");
-	}
-
-	// This selects which game LoadGameData to use
-	LoadGameData(gc);
-
-	CloseHandle(gc);
+	// Load game data, it selects which game to use it self based on above detection
+	LoadGameData();
 
 	// Game mode data
 	g_hArrayGameModes = CreateArray();
@@ -378,16 +378,6 @@ public OnPluginStart()
 	// Behaviour data
 	g_hArrayBehaviours = CreateArray();
 	g_hTrieBehaviours = CreateTrie();
-
-	// Global forwards
-	g_hGlobal_OnGameModeCreated = CreateGlobalForward("Gamma_OnGameModeCreated", ET_Ignore, Param_Cell);
-	g_hGlobal_OnGameModeDestroyed = CreateGlobalForward("Gamma_OnGameModeDestroyed", ET_Ignore, Param_Cell);
-
-	g_hGlobal_OnGameModeStarted = CreateGlobalForward("Gamma_OnGameModeStarted", ET_Ignore, Param_Cell);
-	g_hGlobal_OnGameModeEnded = CreateGlobalForward("Gamma_OnGameModeEnded", ET_Ignore, Param_Cell);
-
-	g_hGlobal_OnBehaviourPossessedClient = CreateGlobalForward("Gamma_OnBehaviourPossessedClient", ET_Ignore, Param_Cell, Param_Cell);
-	g_hGlobal_OnBehaviourReleasedClient = CreateGlobalForward("Gamma_OnBehaviourReleasedClient", ET_Ignore, Param_Cell, Param_Cell);
 
 	// Game mode creation variables
 	g_bGameModeInitializationFailed = false;
@@ -408,12 +398,7 @@ public OnPluginStart()
 	// Version cvar
 	CreateConVar("gamma_version", PLUGIN_VERSION, "Version of Gamma Game Mode Manager", FCVAR_SPONLY|FCVAR_NOTIFY|FCVAR_REPLICATED|FCVAR_DONTRECORD|FCVAR_PLUGIN);
 
-	// Event hooks
-	// TODO: Hook GameRules::RoundRespawn for round start and something else for round end
-	// Also, these events can be changed to fit a specific game
-	//HookEvent("teamplay_round_start", Event_RoundStart); // <- This should be replaced by a hook onto GameRules::RoundRespawn
-	//HookEvent("teamplay_round_win", Event_RoundEnd); // <- Could be placed in GameRules::RoundRespawn as well, at the top but there are other options as well
-
+	// Make sure all player data is initialized for currently ingame players
 	for (new i = 1; i <= MaxClients; i++)
 	{
 		if (IsClientInGame(i))
@@ -423,6 +408,19 @@ public OnPluginStart()
 	}
 
 	AutoExecConfig();
+}
+
+public OnAllPluginsLoaded()
+{
+	// Create out global forwards here, as it doesn't seem to work properly in OnPluginStart(), if you reload gamma at a later time
+	g_hGlobal_OnGameModeCreated = CreateGlobalForward("Gamma_OnGameModeCreated", ET_Ignore, Param_Cell);
+	g_hGlobal_OnGameModeDestroyed = CreateGlobalForward("Gamma_OnGameModeDestroyed", ET_Ignore, Param_Cell);
+
+	g_hGlobal_OnGameModeStarted = CreateGlobalForward("Gamma_OnGameModeStarted", ET_Ignore, Param_Cell);
+	g_hGlobal_OnGameModeEnded = CreateGlobalForward("Gamma_OnGameModeEnded", ET_Ignore, Param_Cell);
+
+	g_hGlobal_OnBehaviourPossessedClient = CreateGlobalForward("Gamma_OnBehaviourPossessedClient", ET_Ignore, Param_Cell, Param_Cell);
+	g_hGlobal_OnBehaviourReleasedClient = CreateGlobalForward("Gamma_OnBehaviourReleasedClient", ET_Ignore, Param_Cell, Param_Cell);
 }
 
 public OnPluginEnd()
@@ -441,7 +439,6 @@ public OnPluginEnd()
 
 
 
-
 /*******************************************************************************
  *	EVENTS
  *******************************************************************************/
@@ -453,18 +450,9 @@ public OnMapStart()
 
 public OnMapEnd()
 {
+	CleanUpOnMapEnd();
 	StopGameMode(false);
 }
-
-/*public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast)
-{
-	ChooseAndStartGameMode();
-}
-
-public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast)
-{
-	StopGameMode(false);
-}*/
 
 public OnClientPutInServer(client)
 {
@@ -549,7 +537,8 @@ stock StopGameMode(bool:forceful)
 
 		if (forceful)
 		{
-			// Force stalemate
+			// Force roundend/stalemate
+			ForceRoundEnd();
 		}
 
 		g_eTargetFilterVerbosity = TargetFilterVerbosity_None;
@@ -579,7 +568,6 @@ stock ChooseAndStartGameMode()
 			DEBUG_PRINT0("Gamma:ChooseAndStartGameMode() : No clients ingame, never mind starting a game mode");
 			return;
 		}
-
 
 		DEBUG_PRINT0("Gamma:ChooseAndStartGameMode() : Auto finding plugins - Start");
 
@@ -667,7 +655,7 @@ stock DetectedPlugin(Handle:plugin)
 
 		DEBUG_PRINT2("Gamma:DetectedPlugin(%X) : Behaviour (%X)",plugin,behaviour);
 
-		if (behaviour == INVALID_BEHAVIOUR)
+		if (behaviour == INVALID_BEHAVIOUR && GetGameModePlugin(gameMode) != plugin)
 		{
 			DEBUG_PRINT1("Gamma:DetectedPlugin(%X) : Calling Gamma_OnGameModeCreated",plugin);
 			SimpleOptionalPluginCallOneParam(plugin, "Gamma_OnGameModeCreated", gameMode);
@@ -2575,8 +2563,15 @@ stock bool:ValidateName(const String:name[])
  *	INTERNAL WRAPPERS
  *******************************************************************************/
 
-stock LoadGameData(Handle:gc)
+stock LoadGameData()
 {
+	// Load game data!
+	new Handle:gc = LoadGameConfigFile("gamma.games");
+	if (gc == INVALID_HANDLE)
+	{
+		SetFailState("Unable to load gamedata");
+	}
+
 	// Look for which game we should call LoadGameData on!
 	switch (g_eRunningGame)
 	{
@@ -2589,6 +2584,8 @@ stock LoadGameData(Handle:gc)
 			LoadGameDataCommon(gc);
 		}
 	}
+
+	CloseHandle(gc);
 }
 
 stock SetupOnMapStart()
@@ -2603,6 +2600,38 @@ stock SetupOnMapStart()
 		default:
 		{
 			SetupCommonOnMapStart();
+		}
+	}
+}
+
+stock CleanUpOnMapEnd()
+{
+	// Look for which game we should call SetupOnMapStart on!
+	switch (g_eRunningGame)
+	{
+		case Game_TF:
+		{
+			CleanUpTFOnMapEnd();
+		}
+		default:
+		{
+			CleanUpCommonOnMapEnd();
+		}
+	}
+}
+
+stock ForceRoundEnd()
+{
+	// Look for which game we should call ForceRoundEnd on!
+	switch (g_eRunningGame)
+	{
+		case Game_TF:
+		{
+			ForceRoundEndTF();
+		}
+		default:
+		{
+			ForceRoundEndCommon();
 		}
 	}
 }

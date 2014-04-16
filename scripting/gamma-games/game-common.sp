@@ -6,28 +6,37 @@
 // Sublime text 2 autocompletion!
 #include <sourcemod>
 
+new String:common_strRoundStartEvent[32];
+new String:common_strRoundEndEvent[32];
+
 // We only have the bare minimum knowledge
 stock LoadGameDataCommon(Handle:gc)
 {
-	new String:roundStartEvent[32];
-	new String:roundEndEvent[32];
-
-	if (!GameConfGetKeyValue(gc, "RoundStartEvent", roundStartEvent, sizeof(roundStartEvent)))
+	if (!GameConfGetKeyValue(gc, "RoundStartEvent", common_strRoundStartEvent, sizeof(common_strRoundStartEvent)))
 	{
 		SetFailState("No RoundStartEvent in the Key/Value section in the gamedata");
 	}
-	if (!GameConfGetKeyValue(gc, "RoundEndEvent", roundEndEvent, sizeof(roundEndEvent)))
+	if (!GameConfGetKeyValue(gc, "RoundEndEvent", common_strRoundEndEvent, sizeof(common_strRoundEndEvent)))
 	{
 		SetFailState("No RoundEndEvent in the Key/Value section in the gamedata");
 	}
-
-	HookEvent(roundStartEvent, Common_RoundStartEvent);
-	HookEvent(roundEndEvent, Common_RoundEndEvent);
 }
 
 stock SetupCommonOnMapStart()
 {
-	// Nothing here, at least yet
+	HookEvent(common_strRoundStartEvent, Common_RoundStartEvent);
+	HookEvent(common_strRoundEndEvent, Common_RoundEndEvent);
+}
+
+stock CleanUpCommonOnMapEnd()
+{
+	UnhookEvent(common_strRoundStartEvent, Common_RoundStartEvent);
+	UnhookEvent(common_strRoundEndEvent, Common_RoundEndEvent);
+}
+
+stock ForceRoundEndCommon()
+{
+	// Urgh, what to put here i wonder
 }
 
 public Common_RoundStartEvent(Handle:event, const String:name[], bool:dontBroadcast)

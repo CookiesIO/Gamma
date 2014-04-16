@@ -6,41 +6,73 @@
 // Sublime text 2 autocompletion!
 #include <sourcemod>
 #include <dhooks>
+#include <sdktools>
 
-new bool:tf_bUseCommon;
-new Handle:tf_hRoundRespawn;
-new Handle:tf_hPreviousRoundEnd;
+new bool:tf_bUseCommonHooks;
+new Handle:tf_hRoundRespawnHook;
+new Handle:tf_hPreviousRoundEndHook;
+
+new Handle:tf_hSetWinningTeamCall;
 
 stock LoadGameDataTF(Handle:gc)
 {
 	DEBUG_PRINT0("Gamma:LoadGameDataTF()");
 
-	new roundRespawnOffset = GameConfGetOffset(gc, "RoundRespawn");
-	new previousRoundEndOffset = GameConfGetOffset(gc, "PreviousRoundEnd");
-	if (roundRespawnOffset == -1 || previousRoundEndOffset == -1)
+	// Prepare the SetWinningTeam(int team, int winReason, bool forceMapreset, bool switchTeams, bool dontAddScore) call
+	StartPrepSDKCall(SDKCall_GameRules);
+	PrepSDKCall_SetFromConf(gc, SDKConf_Virtual, "SetWinningTeam");
+	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_ByValue);
+	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_ByValue);
+	PrepSDKCall_AddParameter(SDKType_Bool, SDKPass_ByValue);
+	PrepSDKCall_AddParameter(SDKType_Bool, SDKPass_ByValue);
+	PrepSDKCall_AddParameter(SDKType_Bool, SDKPass_ByValue);
+	tf_hSetWinningTeamCall = EndPrepSDKCall();
+
+	// If DHooks is available we can hook RoundRespawn and PreviousRoundEnd
+	if (g_bDHooksAvailable)
 	{
-		DEBUG_PRINT0("Gamma:LoadGameDataTF() : Unable to find RoundRespawn or PreviousRoundEnd offsets in game data, attempts safe mode");
-		LoadGameDataCommon(gc);
-		tf_bUseCommon = true;
-		return;
+		DEBUG_PRINT0("Gamma:LoadGameDataTF() : Creating RoundRespawn & PreviousRoundEnd hooks");
+
+		new roundRespawnOffset = GameConfGetOffset(gc, "RoundRespawn");
+		new previousRoundEndOffset = GameConfGetOffset(gc, "PreviousRoundEnd");
+
+		// Hook CTFGameRules::RoundRespawn() and CTFGameRules::PreviousRoundEnd()
+		tf_hRoundRespawnHook = DHookCreate(roundRespawnOffset, HookType_GameRules, ReturnType_Void, ThisPointer_Ignore, TF_RoundRespawn);
+		tf_hPreviousRoundEndHook = DHookCreate(previousRoundEndOffset, HookType_GameRules, ReturnType_Void, ThisPointer_Ignore, TF_PreviousRoundEnd);
 	}
-
-	DEBUG_PRINT0("Gamma:LoadGameDataTF() : Creating hooks");
-
-	tf_hRoundRespawn = DHookCreate(roundRespawnOffset, HookType_GameRules, ReturnType_Void, ThisPointer_Ignore, TF_RoundRespawn);
-	tf_hPreviousRoundEnd = DHookCreate(previousRoundEndOffset, HookType_GameRules, ReturnType_Void, ThisPointer_Ignore, TF_PreviousRoundEnd);
+	else
+	{
+		LoadGameDataCommon(gc);
+		tf_bUseCommonHooks = true;
+	}
 }
 
 stock SetupTFOnMapStart()
 {
-	if (tf_bUseCommon)
+	if (tf_bUseCommonHooks)
 	{
 		SetupCommonOnMapStart();
 		return;
 	}
 	DEBUG_PRINT0("Gamma:SetupTFOnMapStart() : Hooking RoundRespawn and PreviousRoundEnd");
-	DHookGamerules(tf_hRoundRespawn, true);
-	DHookGamerules(tf_hPreviousRoundEnd, true);
+	DHookGamerules(tf_hRoundRespawnHook, true);
+	DHookGamerules(tf_hPreviousRoundEndHook, true);
+}
+
+stock CleanUpTFOnMapEnd()
+{
+	if (tf_bUseCommonHooks)
+	{
+		CleanUpCommonOnMapEnd();
+		return;
+	}
+	// Nothing, everythings auto clean upped
+}
+
+stock ForceRoundEndTF()
+{
+	// Team Unassigned and no reason for the stalemate
+	SDKCall(tf_hSetWinningTeamCall, 0, 0, true, false, false);
 }
 
 public MRESReturn:TF_RoundRespawn()
