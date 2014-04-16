@@ -3,7 +3,7 @@
 #include <sourcemod>
 #include <sdkhooks>
 #include <gamma>
-
+#include <dhooks>
 
 
 /**
@@ -143,25 +143,48 @@ enum BehaviourCreationError
 // Usage: DECREASING_LOOP(indexer,adtarray)
 #define DECREASING_LOOP(%1,%2) for (new %1 = GetArraySize(%2)-1; %1 >= 0; %1--)
 
+
+// The almight important DEBUG_PRINTx's
 #define DEBUG
+//#define DEBUG_LOG
 
 #if defined DEBUG
-#define DEBUG_PRINT(%1) PrintToServer(%1)
+#if defined DEBUG_LOG
+#define DEBUG_PRINT0(%1) PrintToServer(%1); LogMessage(%1)
+#define DEBUG_PRINT1(%1,%2) PrintToServer(%1,%2); LogMessage(%1,%2)
+#define DEBUG_PRINT2(%1,%2,%3) PrintToServer(%1,%2,%3); LogMessage(%1,%2,%3)
+#define DEBUG_PRINT3(%1,%2,%3,%4) PrintToServer(%1,%2,%3,%4); LogMessage(%1,%2,%3,%4)
+#define DEBUG_PRINT4(%1,%2,%3,%4,%5) PrintToServer(%1,%2,%3,%4,%5); LogMessage(%1,%2,%3,%4,%5)
+#define DEBUG_PRINT5(%1,%2,%3,%4,%5,%6) PrintToServer(%1,%2,%3,%4,%5,%6); LogMessage(%1,%2,%3,%4,%5,%6)
+#define DEBUG_PRINT6(%1,%2,%3,%4,%5,%6,%7) PrintToServer(%1,%2,%3,%4,%5,%6,%7); LogMessage(%1,%2,%3,%4,%5,%6,%7)
+#else // defined DEBUG_LOG
+#define DEBUG_PRINT0(%1) PrintToServer(%1)
 #define DEBUG_PRINT1(%1,%2) PrintToServer(%1,%2)
 #define DEBUG_PRINT2(%1,%2,%3) PrintToServer(%1,%2,%3)
 #define DEBUG_PRINT3(%1,%2,%3,%4) PrintToServer(%1,%2,%3,%4)
 #define DEBUG_PRINT4(%1,%2,%3,%4,%5) PrintToServer(%1,%2,%3,%4,%5)
 #define DEBUG_PRINT5(%1,%2,%3,%4,%5,%6) PrintToServer(%1,%2,%3,%4,%5,%6)
 #define DEBUG_PRINT6(%1,%2,%3,%4,%5,%6,%7) PrintToServer(%1,%2,%3,%4,%5,%6,%7)
+#endif // defined DEBUG_LOG
+#else // defined DEBUG
+#if defined DEBUG_LOG
+#define DEBUG_PRINT0(%1) LogMessage(%1)
+#define DEBUG_PRINT1(%1,%2) LogMessage(%1,%2)
+#define DEBUG_PRINT2(%1,%2,%3) LogMessage(%1,%2,%3)
+#define DEBUG_PRINT3(%1,%2,%3,%4) LogMessage(%1,%2,%3,%4)
+#define DEBUG_PRINT4(%1,%2,%3,%4,%5) LogMessage(%1,%2,%3,%4,%5)
+#define DEBUG_PRINT5(%1,%2,%3,%4,%5,%6) LogMessage(%1,%2,%3,%4,%5,%6)
+#define DEBUG_PRINT6(%1,%2,%3,%4,%5,%6,%7) LogMessage(%1,%2,%3,%4,%5,%6,%7)
 #else
-#define BEBUG_PRINT(%1)
+#define DEBUG_PRINT0(%1)
 #define DEBUG_PRINT1(%1,%2)
 #define DEBUG_PRINT2(%1,%2,%3)
 #define DEBUG_PRINT3(%1,%2,%3,%4)
 #define DEBUG_PRINT4(%1,%2,%3,%4,%5)
 #define DEBUG_PRINT5(%1,%2,%3,%4,%5,%6)
 #define DEBUG_PRINT6(%1,%2,%3,%4,%5,%6,%7)
-#endif
+#endif // defined DEBUG_LOG
+#endif // defined DEBUG
 
 // Verbosity of the added target filters
 enum TargetFilterVerbosity
@@ -171,6 +194,19 @@ enum TargetFilterVerbosity
 	TargetFilterVerbosity_BehaviourTypesAndBehaviours
 }
 
+
+/*******************************************************************************
+ *	GAME DETECTION STUFF (yeah...)
+ *******************************************************************************/
+
+// Which game are we running innnnn
+enum Game
+{
+	Game_Unknown,
+	Game_TF,
+}
+
+new Game:g_eRunningGame;
 
 
 /*******************************************************************************
@@ -230,11 +266,14 @@ new Handle:g_hCvarGameModeSelectionMode;	// gamma_gamemode_selection_mode "<1|2|
 // Target filters verbosity, 0=no target filters, 1=behaviour type filters, 2=behaviour type and behaviour target filters
 new Handle:g_hCvarTargetFilters;	// gamma_target_filters "<0|1|2>"
 
-// Safe mode, disables use of custom hooks and returns to safer, but less "optimal" hooks
-// This is only checked in OnConfigsExecuted as there's no point in doing it later
-// This is only planned - we don't have any hooks yet, so it's existance is pointless atm - but wont be for long
-//new Handle:g_hCvarSafeMode;	// gamma_safe_mode "<0|1>"
 
+/*******************************************************************************
+ *	GAME SPECIFIC INCLUDES
+ *******************************************************************************/
+
+// These do stuff specfic for a game!
+#include "gamma-games/game-common.sp"
+#include "gamma-games/game-tf.sp"
 
 
 /*******************************************************************************
@@ -301,6 +340,33 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 
 public OnPluginStart()
 {
+	// Get our game, yay
+	new String:gameFolder[10];
+	GetGameFolderName(gameFolder, sizeof(gameFolder));
+
+	// Check which game we're running in
+	if (StrEqual("tf", gameFolder))
+	{
+		g_eRunningGame = Game_TF;
+	}
+	else
+	{
+		g_eRunningGame = Game_Unknown;
+	}
+
+
+	// Load game data!
+	new Handle:gc = LoadGameConfigFile("gamma.games");
+	if (gc == INVALID_HANDLE)
+	{
+		SetFailState("Unable to load gamedata");
+	}
+
+	// This selects which game LoadGameData to use
+	LoadGameData(gc);
+
+	CloseHandle(gc);
+
 	// Game mode data
 	g_hArrayGameModes = CreateArray();
 	g_hTrieGameModes = CreateTrie();
@@ -338,7 +404,6 @@ public OnPluginStart()
 	g_hCvarGameMode = CreateConVar("gamma_gamemode", "", "Name of the game mode to play", FCVAR_PLUGIN);
 	g_hCvarGameModeSelectionMode = CreateConVar("gamma_gamemode_selection_mode", "3", "Game mode selection method, 1=Strictly by cvar, 2=First able to start, 3=Attempt by cvar then first able to start", FCVAR_PLUGIN, true, 1.0, true, 3.0);
 	g_hCvarTargetFilters = CreateConVar("gamma_target_filters", "1", "Target filter verbosity, 0=No target filters, 1=Behaviour type only filters, 2=Behaviour type and behaviour filters", FCVAR_PLUGIN, true, 0.0, true, 2.0);
-	//g_hCvarSafeMode = CreateConVar("gamma_safe_mode", "0", "Checked OnConfigsExecuted to see determine whether to use safer, less optimal hooks - only checked once", FCVAR_PLUGIN);
 
 	// Version cvar
 	CreateConVar("gamma_version", PLUGIN_VERSION, "Version of Gamma Game Mode Manager", FCVAR_SPONLY|FCVAR_NOTIFY|FCVAR_REPLICATED|FCVAR_DONTRECORD|FCVAR_PLUGIN);
@@ -346,8 +411,8 @@ public OnPluginStart()
 	// Event hooks
 	// TODO: Hook GameRules::RoundRespawn for round start and something else for round end
 	// Also, these events can be changed to fit a specific game
-	HookEvent("teamplay_round_start", Event_RoundStart); // <- This should be replaced by a hook onto GameRules::RoundRespawn
-	HookEvent("teamplay_round_win", Event_RoundEnd); // <- Could be placed in GameRules::RoundRespawn as well, at the top but there are other options as well
+	//HookEvent("teamplay_round_start", Event_RoundStart); // <- This should be replaced by a hook onto GameRules::RoundRespawn
+	//HookEvent("teamplay_round_win", Event_RoundEnd); // <- Could be placed in GameRules::RoundRespawn as well, at the top but there are other options as well
 
 	for (new i = 1; i <= MaxClients; i++)
 	{
@@ -357,7 +422,7 @@ public OnPluginStart()
 		}
 	}
 
-	//AutoExecConfig();
+	AutoExecConfig();
 }
 
 public OnPluginEnd()
@@ -374,12 +439,6 @@ public OnPluginEnd()
 	}
 }
 
-/*
-public OnConfigsExecuted()
-{
-
-}
-*/
 
 
 
@@ -387,12 +446,17 @@ public OnConfigsExecuted()
  *	EVENTS
  *******************************************************************************/
 
+public OnMapStart()
+{
+	SetupOnMapStart();
+}
+
 public OnMapEnd()
 {
 	StopGameMode(false);
 }
 
-public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast)
+/*public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast)
 {
 	ChooseAndStartGameMode();
 }
@@ -400,7 +464,7 @@ public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast)
 public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast)
 {
 	StopGameMode(false);
-}
+}*/
 
 public OnClientPutInServer(client)
 {
@@ -499,19 +563,32 @@ stock StopGameMode(bool:forceful)
 
 stock ChooseAndStartGameMode()
 {
+	// In some cases the game mode doesn't stop without a little push from here
+	// One of the cases are CTeamplayGameRules::RoundRespawn being called with a
+	// PreviousRoundEnd in between, a little helper fix is to never start without
+	// Any players, which I'll add a little further down!
+	StopGameMode(false);
+
 	if (GetConVarBool(g_hCvarEnabled))
 	{
-		DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : Enabled");
+		DEBUG_PRINT0("Gamma:ChooseAndStartGameMode() : Enabled");
+
+		new clientCount = GetClientCount();
+		if (clientCount == 0)
+		{
+			DEBUG_PRINT0("Gamma:ChooseAndStartGameMode() : No clients ingame, never mind starting a game mode");
+			return;
+		}
 
 
-		DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : Auto finding plugins - Start");
+		DEBUG_PRINT0("Gamma:ChooseAndStartGameMode() : Auto finding plugins - Start");
 
 		new Handle:pluginIter = GetPluginIterator();
 		new Handle:newKnownPlugins = CreateArray();
 
 		if (g_hArrayKnownPlugins == INVALID_HANDLE)
 		{
-			DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : Auto finding plugins - No knowns");
+			DEBUG_PRINT0("Gamma:ChooseAndStartGameMode() : Auto finding plugins - No knowns");
 
 			// We don't have any known plugins, so we'll just call it on all plugins
 			while (MorePlugins(pluginIter))
@@ -523,7 +600,7 @@ stock ChooseAndStartGameMode()
 		}
 		else
 		{
-			DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : Auto finding plugins - Have knowns");
+			DEBUG_PRINT0("Gamma:ChooseAndStartGameMode() : Auto finding plugins - Have knowns");
 
 			// We have known plugins, so see if we know the plugin before called PluginDetected
 			while (MorePlugins(pluginIter))
@@ -542,7 +619,7 @@ stock ChooseAndStartGameMode()
 		CloseHandle(pluginIter);
 
 
-		DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : Auto finding plugins - Ended");
+		DEBUG_PRINT0("Gamma:ChooseAndStartGameMode() : Auto finding plugins - Ended");
 
 		g_eTargetFilterVerbosity = TargetFilterVerbosity:GetConVarInt(g_hCvarTargetFilters);
 
@@ -556,19 +633,19 @@ stock ChooseAndStartGameMode()
 			// Strictly by Cvar
 			case 1:
 			{
-				DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : Strictly by Cvar");
+				DEBUG_PRINT0("Gamma:ChooseAndStartGameMode() : Strictly by Cvar");
 				AttemptStart(FindGameMode(gameModeName));
 			}
 			// First game mode able to start
 			case 2:
 			{
-				DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : First game mode able to start");
+				DEBUG_PRINT0("Gamma:ChooseAndStartGameMode() : First game mode able to start");
 				AttemptStartAny();
 			}
 			// Try cvar, if it fails then first to start
 			case 3:
 			{
-				DEBUG_PRINT("Gamma:ChooseAndStartGameMode() : Try by Cvar then any");
+				DEBUG_PRINT0("Gamma:ChooseAndStartGameMode() : Try by Cvar then any");
 				if (!AttemptStart(FindGameMode(gameModeName)))
 				{
 					AttemptStartAny();
@@ -600,7 +677,7 @@ stock DetectedPlugin(Handle:plugin)
 
 stock AttemptStartAny()
 {
-	DEBUG_PRINT("Gamma:AttemptStartAny()");
+	DEBUG_PRINT0("Gamma:AttemptStartAny()");
 
 	new count = GetArraySize(g_hArrayGameModes);
 	for (new i = 0; i < count; i++)
@@ -617,7 +694,7 @@ stock bool:AttemptStart(GameMode:gameMode)
 {
 	if (gameMode != INVALID_GAME_MODE)
 	{
-		#if defined DEBUG
+		#if defined DEBUG || defined DEBUG_LOG
 
 		new String:gameModeName[GAME_MODE_NAME_MAX_LENGTH];
 		GetGameModeName(gameMode, gameModeName, sizeof(gameModeName));
@@ -992,7 +1069,7 @@ stock ReleasePlayerFromBehaviours(client)
 
 public Native__GAMMA_PluginUnloading(Handle:plugin, numParams)
 {
-	DEBUG_PRINT("native __GAMMA_PluginUnloading() : Start");
+	DEBUG_PRINT0("native __GAMMA_PluginUnloading() : Start");
 
 	// Since only a single game mode can be created by 1 plugin, find it
 	new GameMode:gameMode = FindGameModeByPlugin(plugin);
@@ -1015,7 +1092,7 @@ public Native__GAMMA_PluginUnloading(Handle:plugin, numParams)
 		}
 	}
 
-	DEBUG_PRINT("native __GAMMA_PluginUnloading() : End");
+	DEBUG_PRINT0("native __GAMMA_PluginUnloading() : End");
 }
 
 
@@ -2033,7 +2110,7 @@ stock bool:AddBehaviourTypeRequirement(BehaviourType:behaviourType, const String
 // Checks if a plugin meets the requirements to be a behaviour of this type
 stock bool:BehaviourTypePluginCheck(BehaviourType:behaviourType, Handle:plugin)
 {
-	#if defined DEBUG
+	#if defined DEBUG || defined DEBUG_LOG
 
 	new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
 	GetBehaviourTypeName(behaviourType, behaviourTypeName, sizeof(behaviourTypeName));
@@ -2132,7 +2209,7 @@ stock DestroyBehaviourType(BehaviourType:behaviourType)
  // Creates a behaviour from a plugin, type and name
 stock Behaviour:CreateBehaviour(Handle:plugin, BehaviourType:type, const String:name[], &BehaviourCreationError:error)
 {
-	#if defined DEBUG
+	#if defined DEBUG || defined DEBUG_LOG
 
 	new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
 	GetBehaviourTypeName(type, behaviourTypeName, sizeof(behaviourTypeName));
@@ -2313,7 +2390,7 @@ stock BehaviourPossessPlayer(Behaviour:behaviour, client)
 	new index = FindValueInArray(g_hPlayerArrayBehaviours[client], behaviour);
 	if (index == -1)
 	{
-		#if defined DEBUG
+		#if defined DEBUG || defined DEBUG_LOG
 
 		new String:behaviourFullName[BEHAVIOUR_NAME_MAX_LENGTH];
 		GetBehaviourFullName(behaviour, behaviourFullName, sizeof(behaviourFullName));
@@ -2354,7 +2431,7 @@ stock BehaviourReleasePlayer(Behaviour:behaviour, client)
 	new index = FindValueInArray(g_hPlayerArrayBehaviours[client], behaviour);
 	if (index != -1)
 	{
-		#if defined DEBUG
+		#if defined DEBUG || defined DEBUG_LOG
 
 		new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
 		GetBehaviourFullName(behaviour, behaviourFullName, sizeof(behaviourFullName));
@@ -2495,8 +2572,49 @@ stock bool:ValidateName(const String:name[])
 
 
 /*******************************************************************************
- *	Wrappers
+ *	INTERNAL WRAPPERS
  *******************************************************************************/
+
+stock LoadGameData(Handle:gc)
+{
+	// Look for which game we should call LoadGameData on!
+	switch (g_eRunningGame)
+	{
+		case Game_TF:
+		{
+			LoadGameDataTF(gc);
+		}
+		default:
+		{
+			LoadGameDataCommon(gc);
+		}
+	}
+}
+
+stock SetupOnMapStart()
+{
+	// Look for which game we should call SetupOnMapStart on!
+	switch (g_eRunningGame)
+	{
+		case Game_TF:
+		{
+			SetupTFOnMapStart();
+		}
+		default:
+		{
+			SetupCommonOnMapStart();
+		}
+	}
+}
+
+
+
+
+
+/*******************************************************************************
+ *	WRAPPERS
+ *******************************************************************************/
+
 
 // Calls an optional function in the targetted plugin, if it exists, without parameters
 stock SimpleOptionalPluginCall(Handle:plugin, const String:function[], any:defaultValue=0, &error=0)

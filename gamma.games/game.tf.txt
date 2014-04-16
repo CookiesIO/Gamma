@@ -1,0 +1,29 @@
+"Games"
+{
+	"tf"
+	{
+		"Offsets"
+		{
+			"RoundRespawn"
+			{
+				"windows"	"215"
+				"linux"		"216"
+			}
+			"PreviousRoundEnd"
+			{
+				"windows"	"182"
+				"linux"		"183"
+			}
+			"SetWinningTeam"
+			{
+				"windows"	"155"
+				"linux"		"156"
+			}
+		}
+		"Keys"
+		{
+			"RoundStartEvent"	"teamplay_round_start"
+			"RoundEndEvent"		"teamplay_round_win"
+		}
+	}
+}
