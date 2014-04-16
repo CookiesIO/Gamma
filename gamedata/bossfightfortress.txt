@@ -1,0 +1,24 @@
+"Games"
+{
+	"tf"
+	{
+		"Offsets"
+		{
+			"PlayerRunCommand"
+			{
+				"windows"	"417"
+				"linux"		"418"
+			}
+			"GetMaxHealth"
+			{
+				"windows"	"117"
+				"linux"		"118"
+			}
+			"OnTakeDamage_Alive"
+			{
+				"windows"	"271"
+				"linux"		"272"
+			}
+		}
+	}
+}
