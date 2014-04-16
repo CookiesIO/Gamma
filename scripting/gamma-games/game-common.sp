@@ -37,10 +37,10 @@ stock CleanUpCommonOnMapEnd()
 stock ForceRoundEndCommon()
 {
 	// This should be okay, riiiight? Thanks to Mitchell and Leonardo
-    new iFlags = GetCommandFlags("mp_forcewin");
-    SetCommandFlags("mp_forcewin", iFlags & ~FCVAR_CHEAT);
-    ServerCommand("mp_forcewin %i", iTeamNum);
-    SetCommandFlags("mp_forcewin", iFlags);
+    new flags = GetCommandFlags("mp_forcewin");
+    SetCommandFlags("mp_forcewin", flags & ~FCVAR_CHEAT);
+    ServerCommand("mp_forcewin %i", 0);
+    SetCommandFlags("mp_forcewin", flags);
 }
 
 public Common_RoundStartEvent(Handle:event, const String:name[], bool:dontBroadcast)
