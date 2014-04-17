@@ -28,6 +28,9 @@ new BehaviourType:g_hBossBehaviourType;
 // Valid map?
 new bool:g_bIsValidMap;
 
+// Round state (this is RoundState_Preround before arena_round_start, RoundState_RoundRunning efter and RoundState_GameOver after teamplay_round_win)
+new RoundState:g_eRoundState;
+
 // Who're the bosses!
 new g_bClientIsBoss[MAXPLAYERS+1];
 new Behaviour:g_hClientBossBehaviour[MAXPLAYERS+1]; // Faster lookup than natives
@@ -134,6 +137,9 @@ public bool:Gamma_IsGameModeAbleToStartRequest()
 
 public Gamma_OnGameModeStart()
 {
+	// Set round state
+	g_eRoundState = RoundState_Preround;
+
 	// Get a random behaviour of BossBehaviourType
 	new Handle:behaviours = Gamma_GetBehaviourTypeBehaviours(g_hBossBehaviourType);
 	new Behaviour:bossBehaviour = GetArrayBehaviour(behaviours, GetRandomInt(0, GetArraySize(behaviours) - 1));
@@ -163,85 +169,134 @@ public Gamma_OnGameModeStart()
 	}
 
 	// We use the following events to determine when to do certain things to the boss (rawrrr)
-	HookEvent("arena_round_start", Event_RoundStartPreparation);
-	HookEvent("post_inventory_application", Event_EquipmentUpdate);
-	HookEvent("player_spawn", Event_EquipmentUpdate);
+	HookEvent("arena_round_start", Event_ArenaRoundStart);
+	HookEvent("post_inventory_application", Event_PostInventoryApplication);
+	HookEvent("teamplay_round_win", Event_RoundWin);
 }
 
 public Gamma_OnGameModeEnd()
 {
 	// Unhook our events
-	UnhookEvent("arena_round_start", Event_RoundStartPreparation);
-	UnhookEvent("post_inventory_application", Event_EquipmentUpdate);
-	UnhookEvent("player_spawn", Event_EquipmentUpdate);
+	UnhookEvent("arena_round_start", Event_ArenaRoundStart);
+	UnhookEvent("post_inventory_application", Event_PostInventoryApplication);
+	UnhookEvent("teamplay_round_win", Event_RoundWin);
 }
 
 // We use these forwards for easier extensions of the game mode later
 public Gamma_OnBehaviourPossessedClient(client, Behaviour:behaviour)
 {
-	// Set the boss' behaviour
-	g_hClientBossBehaviour[client] = behaviour;
-	g_bClientIsBoss[client] = true;
-
-	// Uhhh, woops, hax needed, the only way to get byref args
-	static Handle:hasChargeAbilityFwd = INVALID_HANDLE;
-	if (hasChargeAbilityFwd == INVALID_HANDLE)
+	// Only do stuff if it's one of our behaviours!
+	if (Gamma_GetBehaviourType(behaviour) == g_hBossBehaviourType)
 	{
-		hasChargeAbilityFwd = CreateForward(ET_Single, Param_FloatByRef);
-	}
+		// Set the boss' behaviour
+		g_hClientBossBehaviour[client] = behaviour;
+		g_bClientIsBoss[client] = true;
 
-	// Always, ALWAYS RESET THIS to -1
-	g_iPlayerRunCmdHookIds[client] = -1;
-
-	// Add the function to the forward
-	if (Gamma_AddBehaviourFunctionToForward(g_hClientBossBehaviour[client], "BFF_HasChargeAbility", hasChargeAbilityFwd))
-	{
-		new Float:chargeTime;
-		new bool:result;
-
-		// Call the forward and get the result!
-		Call_StartForward(hasChargeAbilityFwd);
-		Call_PushFloatRef(chargeTime);
-		Call_Finish(result);
-
-		// Let's see if it's 0 or 1 or true or false, anyways who cares, hook if needed
-		if (result)
+		// Uhhh, woops, hax needed, the only way to get byref args
+		static Handle:hasChargeAbilityFwd = INVALID_HANDLE;
+		if (hasChargeAbilityFwd == INVALID_HANDLE)
 		{
-			if (chargeTime < 0.0)
-			{
-				chargeTime = 1.0;
-			}
-			g_fBossMaxChargeTime[client] = chargeTime;
-			g_iPlayerRunCmdHookIds[client] = DHookEntity(g_hPlayerRunCmdHook, true, client);
+			hasChargeAbilityFwd = CreateForward(ET_Single, Param_FloatByRef);
 		}
 
-		// Don't forget to clear the forward!
-		Gamma_RemoveBehaviourFunctionFromForward(g_hClientBossBehaviour[client], "BFF_HasChargeAbility", hasChargeAbilityFwd);
-	}
+		// Always, ALWAYS RESET THIS to -1
+		g_iPlayerRunCmdHookIds[client] = -1;
 
-	// Hook 
-	DHookEntity(g_hGetMaxHealthHook, false, client);
-	DHookEntity(g_hOnTakeDamage_AliveHook, false, client);
+		// Add the function to the forward
+		if (Gamma_AddBehaviourFunctionToForward(g_hClientBossBehaviour[client], "BFF_HasChargeAbility", hasChargeAbilityFwd))
+		{
+			new Float:chargeTime;
+			new bool:result;
+
+			// Call the forward and get the result!
+			Call_StartForward(hasChargeAbilityFwd);
+			Call_PushFloatRef(chargeTime);
+			Call_Finish(result);
+
+			// Let's see if it's 0 or 1 or true or false, anyways who cares, hook if needed
+			if (result)
+			{
+				if (chargeTime < 0.0)
+				{
+					chargeTime = 1.0;
+				}
+				g_fBossMaxChargeTime[client] = chargeTime;
+				g_iPlayerRunCmdHookIds[client] = DHookEntity(g_hPlayerRunCmdHook, true, client);
+			}
+
+			// Don't forget to clear the forward!
+			Gamma_RemoveBehaviourFunctionFromForward(g_hClientBossBehaviour[client], "BFF_HasChargeAbility", hasChargeAbilityFwd);
+		}
+
+		// Hook GetMaxHealth and OnTakeDamage_Alive
+		g_iGetMaxHealthHookIds[client] = DHookEntity(g_hGetMaxHealthHook, false, client);
+		g_iOnTakeDamage_AliveHookIds[client] = DHookEntity(g_hOnTakeDamage_AliveHook, false, client);
+
+		// Equip the boss, buy delay it a bit
+		CreateTimer(0.1, EquipBossTimer, GetClientUserId(client));
+	}
 }
 
 public Gamma_OnBehaviourReleasedClient(client, Behaviour:behaviour)
 {
-	// Remove our hooks
-	if (g_iPlayerRunCmdHookIds[client] != -1)
+	// Only do stuff if it's one of our behaviours!
+	if (Gamma_GetBehaviourType(behaviour) == g_hBossBehaviourType)
 	{
-		DHookRemoveHookID(g_iPlayerRunCmdHookIds[client]);
-	}
-	DHookRemoveHookID(g_iGetMaxHealthHookIds[client]);
-	DHookRemoveHookID(g_iOnTakeDamage_AliveHookIds[client]);
+		// Remove our hooks
+		if (g_iPlayerRunCmdHookIds[client] != -1)
+		{
+			DHookRemoveHookID(g_iPlayerRunCmdHookIds[client]);
+		}
+		DHookRemoveHookID(g_iGetMaxHealthHookIds[client]);
+		DHookRemoveHookID(g_iOnTakeDamage_AliveHookIds[client]);
 
-	// Reset variables
-	g_hClientBossBehaviour[client] = INVALID_BEHAVIOUR;
-	g_bClientIsBoss[client] = false;
-	g_bIsCharging[client] = false;
+		// Reset variables
+		g_hClientBossBehaviour[client] = INVALID_BEHAVIOUR;
+		g_bClientIsBoss[client] = false;
+		g_bIsCharging[client] = false;
+
+		// Check our round state to determine further actions
+		switch (g_eRoundState)
+		{
+			// If it's preround, just assign a new boss behaviours, if possible - else force stop game mode
+			case RoundState_Preround:
+			{
+				// Get a new random boss behaviour
+				new Handle:behaviours = Gamma_GetBehaviourTypeBehaviours(g_hBossBehaviourType);
+				new Behaviour:bossBehaviour = INVALID_BEHAVIOUR;
+				if (GetArraySize(behaviours))
+				{
+					bossBehaviour = GetArrayBehaviour(behaviours, GetRandomInt(0, GetArraySize(behaviours)));
+				}
+				CloseHandle(behaviours);
+
+				if (bossBehaviour == INVALID_BEHAVIOUR)
+				{
+					// Oh no, no other boss behaviours!
+					Gamma_ForceStopGameMode();
+					return;
+				}
+
+				// Okay, we're good, assign it and regenerate the player
+				Gamma_GiveBehaviour(client, bossBehaviour);
+				TF2_RegeneratePlayer(client);
+			}
+			// Uh-oh, well shit, this ain't good
+			case RoundState_RoundRunning:
+			{
+				// We could make attempts at fixing it up by trying to assign a new boss, but for now force stop
+				Gamma_ForceStopGameMode();
+			}
+			// Couldn't care less if the actual round is over, so let it slip
+			case RoundState_GameOver:
+			{
+			}
+		}
+	}
 }
 
 // Give the bosses the health they deserve!
-public Event_RoundStartPreparation(Handle:event, const String:name[], bool:dontBroadcast)
+public Event_ArenaRoundStart(Handle:event, const String:name[], bool:dontBroadcast)
 {
 	for (new i = 1; i <= MaxClients; i++)
 	{
@@ -252,36 +307,68 @@ public Event_RoundStartPreparation(Handle:event, const String:name[], bool:dontB
 			g_iBossMaxHealth[i] = g_iBossHealth[i] = health;
 		}
 	}
+	// Now we're truly started, so now our RoundState is RoundRunning
+	g_eRoundState = RoundState_RoundRunning;
+}
+
+// Loss of behaviour is just fine at this moment
+public Event_RoundWin(Handle:event, const String:name[], bool:dontBroadcast)
+{
+	// Now we've finished the actual playable round, so RoundState_GameOver
+	g_eRoundState = RoundState_GameOver;
+}
+
+// Equip boss, slightly delayed... But just once, only once, PostInventoryApplication should handle the rest
+public Action:EquipBossTimer(Handle:timer, any:userid)
+{
+	// justtobesaferight?
+	new client = GetClientOfUserId(userid);
+	if (client)
+	{
+		EquipBoss(client);
+	}
 }
 
 // Give the bosses the gear they don't deserve!
-public Event_EquipmentUpdate(Handle:event, const String:name[], bool:dontBroadcast)
+public Event_PostInventoryApplication(Handle:event, const String:name[], bool:dontBroadcast)
 {
 	new client = GetClientOfUserId(GetEventInt(event, "userid"));
 	if (g_bClientIsBoss[client])
 	{
-		Gamma_SimpleBehaviourFunctionCall(g_hClientBossBehaviour[client], "BFF_EquipBoss", _, client);
+		EquipBoss(client);
 	}
+}
+
+stock EquipBoss(client)
+{
+	Gamma_SimpleBehaviourFunctionCall(g_hClientBossBehaviour[client], "BFF_EquipBoss", _, client);
 }
 
 // Our player run cmd hook, fresh outta DHooks!
 public MRESReturn:Internal_PlayerRunCmd(this, Handle:hParams)
 {
+	// No use before the game is running
+	if (g_eRoundState == RoundState_Preround)
+	{
+		return MRES_Ignored;
+	}
+
+	// Store the last buttons, we wanna know if the player was holding IN_ATTACK2
 	static lastButtons[MAXPLAYERS+1];
+
+	// Get the clients buttons and check for IN_ATTACK2
 	new buttons = GetClientButtons(this);
 	if ((buttons & IN_ATTACK2) == IN_ATTACK2)
 	{
 		// Charging can begin when the client is not charging and when the cooldown has ended
 		if (!g_bIsCharging[this] && g_fBossChargeCooldown[this] < GetGameTime())
 		{
-			PrintToServer("%N started charging", this);
 			g_fBossChargeTime[this] = GetGameTime();
 			g_bIsCharging[this] = true;
 		}
 	}
 	else if ((lastButtons[this] & IN_ATTACK2) == IN_ATTACK2 && g_bIsCharging[this])
 	{
-		PrintToServer("%N Used ability", this);
 		// Get charge percent and send the ChargeAbilityUsed message to the behaviour!
 		new Float:chargePercent = GetChargePercent(this);
 		new Float:cooldown = Float:Gamma_SimpleBehaviourFunctionCall(g_hClientBossBehaviour[this], "BFF_ChargeAbilityUsed", _, this, chargePercent);
@@ -304,14 +391,17 @@ public MRESReturn:Internal_OnTakeDamage_Alive(this, Handle:hParams)
 {
 	// 48 is the offset to get the damage part of CTakeDamageInfo
 	new Float:damage = DHookGetParamObjectPtrVar(hParams, 1, 48, ObjectValueType_Float);
-	damage = float(RoundFloat(damage));
+	new roundedDamage = RoundFloat(damage);
+
+	// Subtract the damage from our health
+	g_iBossHealth[this] -= roundedDamage;
 
 	// Boost health the equalivant of the damage, we round the damage but it shouldn't be noticable in the game
-	new newHealth = GetEntProp(this, Prop_Send, "m_iHealth") + RoundFloat(damage);
+	new newHealth = GetEntProp(this, Prop_Send, "m_iHealth") + roundedDamage;
 	SetEntProp(this, Prop_Send, "m_iHealth", newHealth);
 
 	// Now we set the damage to damage + (/damage/maxhealth) * 100) to get the percentage of actual damage done
-	damage = damage + ((damage / g_iBossMaxHealth[this]) * 100);
+	damage = roundedDamage + ((float(roundedDamage) / g_iBossMaxHealth[this]) * 100);
 	DHookSetParamObjectPtrVar(hParams, 1, 48, ObjectValueType_Float, damage);
 
 	// Make sure the override gets in

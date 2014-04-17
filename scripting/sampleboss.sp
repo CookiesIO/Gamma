@@ -33,7 +33,7 @@ public Gamma_OnGameModeCreated(GameMode:gameMode)
 
 public BFF_GetMaxHealth(enemyCount)
 {
-	return RoundToFloor(Pow(512.0*enemyCount, 1.1));
+	return RoundToFloor(Pow(512.0 * enemyCount, 1.1));
 }
 
 public BFF_EquipBoss(boss)
