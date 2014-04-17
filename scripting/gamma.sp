@@ -7,6 +7,7 @@
 // DHooks not required, but recommended
 #undef REQUIRE_EXTENSIONS
 #include <dhooks>
+#define REQUIRE_EXTENSIONS
 
 
 /**
@@ -207,6 +208,8 @@ enum Game
 {
 	Game_Unknown,
 	Game_TF,
+	Game_CSS,
+	Game_CSGO
 }
 
 new Game:g_eRunningGame;
@@ -280,6 +283,7 @@ new bool:g_bDHooksAvailable;
 // These do stuff specfic for a game!
 #include "gamma-games/game-common.sp"
 #include "gamma-games/game-tf.sp"
+#include "gamma-games/game-cs.sp"
 
 
 /*******************************************************************************
@@ -358,6 +362,14 @@ public OnPluginStart()
 	if (StrEqual("tf", gameFolder))
 	{
 		g_eRunningGame = Game_TF;
+	}
+	else if (StrEqual("cstrike", gameFolder))
+	{
+		g_eRunningGame = Game_CSS;
+	}
+	else if (StrEqual("csgo", gameFolder))
+	{
+		g_eRunningGame = Game_CSGO;
 	}
 	else
 	{
@@ -2579,6 +2591,10 @@ stock LoadGameData()
 		{
 			LoadGameDataTF(gc);
 		}
+		case Game_CSS, Game_CSGO:
+		{
+			LoadGameDataCS(gc);
+		}
 		default:
 		{
 			LoadGameDataCommon(gc);
@@ -2597,6 +2613,10 @@ stock SetupOnMapStart()
 		{
 			SetupTFOnMapStart();
 		}
+		case Game_CSS, Game_CSGO:
+		{
+			SetupCSOnMapStart();
+		}
 		default:
 		{
 			SetupCommonOnMapStart();
@@ -2613,6 +2633,10 @@ stock CleanUpOnMapEnd()
 		{
 			CleanUpTFOnMapEnd();
 		}
+		case Game_CSS, Game_CSGO:
+		{
+			CleanUpCSOnMapEnd();
+		}
 		default:
 		{
 			CleanUpCommonOnMapEnd();
@@ -2628,6 +2652,10 @@ stock ForceRoundEnd()
 		case Game_TF:
 		{
 			ForceRoundEndTF();
+		}
+		case Game_CSS, Game_CSGO:
+		{
+			ForceRoundEndCS();
 		}
 		default:
 		{

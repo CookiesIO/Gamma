@@ -1,0 +1,11 @@
+"Games"
+{
+	"csgo"
+	{
+		"Keys"
+		{
+			"RoundStartEvent"	"round_prestart"
+			"RoundEndEvent"		"round_end"
+		}
+	}
+}

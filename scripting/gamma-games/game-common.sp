@@ -18,14 +18,17 @@ stock LoadGameDataCommon(Handle:gc)
 	}
 	if (!GameConfGetKeyValue(gc, "RoundEndEvent", common_strRoundEndEvent, sizeof(common_strRoundEndEvent)))
 	{
-		SetFailState("No RoundEndEvent in the Key/Value section in the gamedata");
+		// Actually, round end isn't needed, but lets just log this message once in a while
+		LogMessage("No RoundEndEvent found in gamedata, is this on purpose?");
+		//SetFailState("No RoundEndEvent in the Key/Value section in the gamedata");
 	}
 }
 
 stock SetupCommonOnMapStart()
 {
+	// At least RoundStart is required
 	HookEvent(common_strRoundStartEvent, Common_RoundStartEvent);
-	HookEvent(common_strRoundEndEvent, Common_RoundEndEvent);
+	HookEventEx(common_strRoundEndEvent, Common_RoundEndEvent);
 }
 
 stock CleanUpCommonOnMapEnd()
@@ -45,12 +48,12 @@ stock ForceRoundEndCommon()
 
 public Common_RoundStartEvent(Handle:event, const String:name[], bool:dontBroadcast)
 {
-	DEBUG_PRINT0("Gamma:Common_RoundStartEvent()");
+	DEBUG_PRINT1("Gamma:Common_RoundStartEvent() : %s", name);
 	ChooseAndStartGameMode();
 }
 
 public Common_RoundEndEvent(Handle:event, const String:name[], bool:dontBroadcast)
 {
-	DEBUG_PRINT0("Gamma:Common_RoundEndEvent()");
+	DEBUG_PRINT1("Gamma:Common_RoundEndEvent() : %s", name);
 	StopGameMode(false);
 }

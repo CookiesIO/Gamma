@@ -4,4 +4,12 @@
 	{
 		"game"		"tf"
 	}
+	"game.cstrike.txt"
+	{
+		"game"		"cstrike"
+	}
+	"game.csgo.txt"
+	{
+		"game"		"csgo"
+	}
 }

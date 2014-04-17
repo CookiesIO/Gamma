@@ -1,0 +1,11 @@
+"Games"
+{
+	"cstrike"
+	{
+		"Keys"
+		{
+			"RoundStartEvent"	"round_start"
+			"RoundEndEvent"		"round_end"
+		}
+	}
+}
