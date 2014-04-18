@@ -8,25 +8,30 @@
 #include <dhooks>
 #include <sdktools>
 
-new bool:tf_bUseCommonHooks;
-new Handle:tf_hRoundRespawnHook;
-new Handle:tf_hPreviousRoundEndHook;
+static bool:tf_bUseCommonHooks;
+static Handle:tf_hRoundRespawnHook;
+static Handle:tf_hPreviousRoundEndHook;
 
-new Handle:tf_hSetWinningTeamCall;
+static Handle:tf_hSetWinningTeamCall;
 
 stock LoadGameDataTF(Handle:gc)
 {
 	DEBUG_PRINT0("Gamma:LoadGameDataTF()");
 
-	// Prepare the SetWinningTeam(int team, int winReason, bool forceMapreset, bool switchTeams, bool dontAddScore) call
-	StartPrepSDKCall(SDKCall_GameRules);
-	PrepSDKCall_SetFromConf(gc, SDKConf_Virtual, "SetWinningTeam");
-	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_ByValue);
-	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_ByValue);
-	PrepSDKCall_AddParameter(SDKType_Bool, SDKPass_ByValue);
-	PrepSDKCall_AddParameter(SDKType_Bool, SDKPass_ByValue);
-	PrepSDKCall_AddParameter(SDKType_Bool, SDKPass_ByValue);
-	tf_hSetWinningTeamCall = EndPrepSDKCall();
+	// Load game data can be called more than once, I ain't lying! (dhooks added/removed)
+	// If we already have the setwinningteam call setup, it's fine no matter what
+	if (tf_hSetWinningTeamCall == INVALID_HANDLE)
+	{
+		// Prepare the SetWinningTeam(int team, int winReason, bool forceMapreset, bool switchTeams, bool dontAddScore) call
+		StartPrepSDKCall(SDKCall_GameRules);
+		PrepSDKCall_SetFromConf(gc, SDKConf_Virtual, "SetWinningTeam");
+		PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_ByValue);
+		PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_ByValue);
+		PrepSDKCall_AddParameter(SDKType_Bool, SDKPass_ByValue);
+		PrepSDKCall_AddParameter(SDKType_Bool, SDKPass_ByValue);
+		PrepSDKCall_AddParameter(SDKType_Bool, SDKPass_ByValue);
+		tf_hSetWinningTeamCall = EndPrepSDKCall();
+	}
 
 	// If DHooks is available we can hook RoundRespawn and PreviousRoundEnd
 	if (g_bDHooksAvailable)
@@ -39,6 +44,9 @@ stock LoadGameDataTF(Handle:gc)
 		// Hook CTFGameRules::RoundRespawn() and CTFGameRules::PreviousRoundEnd()
 		tf_hRoundRespawnHook = DHookCreate(roundRespawnOffset, HookType_GameRules, ReturnType_Void, ThisPointer_Ignore, TF_RoundRespawn);
 		tf_hPreviousRoundEndHook = DHookCreate(previousRoundEndOffset, HookType_GameRules, ReturnType_Void, ThisPointer_Ignore, TF_PreviousRoundEnd);
+		
+		// Remember, this can be called multiple times
+		tf_bUseCommonHooks = false;
 	}
 	else
 	{

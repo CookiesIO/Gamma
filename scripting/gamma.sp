@@ -350,8 +350,7 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 
 public OnPluginStart()
 {
-	// Check if our optional extensions are available, dhooks is a bit complex
-	// with regards to plug'n'play in gamma's case, so we only check during plugin start - for now
+	// Check if our optional extensions are available (dhooks only atm)
 	g_bDHooksAvailable = LibraryExists("dhooks");
 
 	// Get our game, yay
@@ -451,6 +450,18 @@ public OnPluginEnd()
 	{
 		new GameMode:gameMode = GetArrayGameMode(g_hArrayGameModes, i);
 		DestroyGameMode(gameMode);
+	}
+}
+
+public OnLibraryRemoved(const String:name[])
+{
+	if (StrEqual(name, "dhooks"))
+	{
+		// Oh snap, we lost dhooks! Clean up the hooks! Load the game data! Setup our new hooks!
+		g_bDHooksAvailable = false;
+		CleanUpOnMapEnd();
+		LoadGameData();
+		SetupOnMapStart();
 	}
 }
 
@@ -598,6 +609,12 @@ public Action:Command_ListBehaviours(client, args)
 
 public OnMapStart()
 {
+	// Check if dhooks was loaded during previous map, if it is, reload our game data
+	if (!g_bDHooksAvailable && LibraryExists("dhooks"))
+	{
+		g_bDHooksAvailable = true;
+		LoadGameData();
+	}
 	SetupOnMapStart();
 }
 

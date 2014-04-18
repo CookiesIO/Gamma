@@ -6,21 +6,33 @@
 // Sublime text 2 autocompletion!
 #include <sourcemod>
 
-new String:common_strRoundStartEvent[32];
-new String:common_strRoundEndEvent[32];
+static bool:common_bDidLoad = false;
+
+static bool:common_bHasRoundEndEvent;
+
+static String:common_strRoundStartEvent[32];
+static String:common_strRoundEndEvent[32];
 
 // We only have the bare minimum knowledge
 stock LoadGameDataCommon(Handle:gc)
 {
-	if (!GameConfGetKeyValue(gc, "RoundStartEvent", common_strRoundStartEvent, sizeof(common_strRoundStartEvent)))
+	if (!common_bDidLoad)
 	{
-		SetFailState("No RoundStartEvent in the Key/Value section in the gamedata");
-	}
-	if (!GameConfGetKeyValue(gc, "RoundEndEvent", common_strRoundEndEvent, sizeof(common_strRoundEndEvent)))
-	{
-		// Actually, round end isn't needed, but lets just log this message once in a while
-		LogMessage("No RoundEndEvent found in gamedata, is this on purpose?");
-		//SetFailState("No RoundEndEvent in the Key/Value section in the gamedata");
+		if (!GameConfGetKeyValue(gc, "RoundStartEvent", common_strRoundStartEvent, sizeof(common_strRoundStartEvent)))
+		{
+			SetFailState("No RoundStartEvent in the Key/Value section in the gamedata");
+		}
+		if (!GameConfGetKeyValue(gc, "RoundEndEvent", common_strRoundEndEvent, sizeof(common_strRoundEndEvent)))
+		{
+			// Actually, round end isn't needed, but lets just log this message, could help catch woopsies
+			LogMessage("No RoundEndEvent found in gamedata, is this on purpose?");
+			common_bHasRoundEndEvent = false;
+		}
+		else
+		{
+			common_bHasRoundEndEvent = true;
+		}
+		common_bDidLoad = true;
 	}
 }
 
@@ -28,13 +40,19 @@ stock SetupCommonOnMapStart()
 {
 	// At least RoundStart is required
 	HookEvent(common_strRoundStartEvent, Common_RoundStartEvent);
-	HookEventEx(common_strRoundEndEvent, Common_RoundEndEvent);
+	if (common_bHasRoundEndEvent)
+	{
+		HookEvent(common_strRoundEndEvent, Common_RoundEndEvent);
+	}
 }
 
 stock CleanUpCommonOnMapEnd()
 {
 	UnhookEvent(common_strRoundStartEvent, Common_RoundStartEvent);
-	UnhookEvent(common_strRoundEndEvent, Common_RoundEndEvent);
+	if (common_bHasRoundEndEvent)
+	{
+		UnhookEvent(common_strRoundEndEvent, Common_RoundEndEvent);
+	}
 }
 
 stock ForceRoundEndCommon()

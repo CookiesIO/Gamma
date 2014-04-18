@@ -13,13 +13,14 @@
 
 stock LoadGameDataCS(Handle:gc)
 {
-	// We really, really want the cstrike library for cs:s/csgo
+	// We really, really want the cstrike library for css/csgo
+	// Well, isn't cstrike, like, always available in css/csgo?
 	if (!LibraryExists("cstrike"))
 	{
 		SetFailState("cstrike library not loaded");
 	}
 
-	// We're just using events for cs:s/csgo, they're in the gamedata
+	// We're just using events for css/csgo, they're in the gamedata
 	LoadGameDataCommon(gc);
 }
 
