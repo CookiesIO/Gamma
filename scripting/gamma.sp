@@ -401,14 +401,19 @@ public OnPluginStart()
 	g_hCurrentGameMode = INVALID_GAME_MODE;
 	g_hCurrentGameModePlugin = INVALID_HANDLE;
 
+	// Version cvar
+	CreateConVar("gamma_version", PLUGIN_VERSION, "Version of Gamma Game Mode Manager", FCVAR_SPONLY|FCVAR_NOTIFY|FCVAR_REPLICATED|FCVAR_DONTRECORD|FCVAR_PLUGIN);
+	
 	// Cvars
 	g_hCvarEnabled = CreateConVar("gamma_enabled", "1", "Whether or not gamma is enabled (0|1)", FCVAR_PLUGIN, true, 0.0, true, 1.0);
 	g_hCvarGameMode = CreateConVar("gamma_gamemode", "", "Name of the game mode to play", FCVAR_PLUGIN);
 	g_hCvarGameModeSelectionMode = CreateConVar("gamma_gamemode_selection_mode", "3", "Game mode selection method, 1=Strictly by cvar, 2=First able to start, 3=Attempt by cvar then first able to start", FCVAR_PLUGIN, true, 1.0, true, 3.0);
 	g_hCvarTargetFilters = CreateConVar("gamma_target_filters", "1", "Target filter verbosity, 0=No target filters, 1=Behaviour type only filters, 2=Behaviour type and behaviour filters", FCVAR_PLUGIN, true, 0.0, true, 2.0);
 
-	// Version cvar
-	CreateConVar("gamma_version", PLUGIN_VERSION, "Version of Gamma Game Mode Manager", FCVAR_SPONLY|FCVAR_NOTIFY|FCVAR_REPLICATED|FCVAR_DONTRECORD|FCVAR_PLUGIN);
+	// Commands
+	RegAdminCmd("gamma_list_gamemodes", Command_ListGameModes, ADMFLAG_GENERIC, "Lists all game modes installed", "Gamma");
+	RegAdminCmd("gamma_list_behaviour_types", Command_ListBehaviourTypes, ADMFLAG_GENERIC, "Lists all behaviour types for a game mode", "Gamma");
+	RegAdminCmd("gamma_list_behaviours", Command_ListBehaviours, ADMFLAG_GENERIC, "Lists all behaviours for a behaviour type", "Gamma");
 
 	// Make sure all player data is initialized for currently ingame players
 	for (new i = 1; i <= MaxClients; i++)
@@ -447,6 +452,142 @@ public OnPluginEnd()
 		new GameMode:gameMode = GetArrayGameMode(g_hArrayGameModes, i);
 		DestroyGameMode(gameMode);
 	}
+}
+
+
+
+/*******************************************************************************
+ *	COMMANDS
+ *******************************************************************************/
+public Action:Command_ListGameModes(client, args)
+{
+	new count = GetArraySize(g_hArrayGameModes);
+	if (count == 0)
+	{
+		PrintToConsole(client, "No game modes installed");
+	}
+	else
+	{
+		new String:gameModeName[GAME_MODE_NAME_MAX_LENGTH];
+		for (new i = 0; i < count; i++)
+		{
+			new GameMode:gameMode = GetArrayGameMode(g_hArrayGameModes, i);
+			GetGameModeName(gameMode, gameModeName, sizeof(gameModeName));
+			PrintToConsole(client, "[%02.2i] : %s", i, gameModeName);
+		}
+	}
+	return Plugin_Handled;
+}
+
+public Action:Command_ListBehaviourTypes(client, args)
+{
+	if (args < 1)
+	{
+		PrintToConsole(client, "Usage: gamma_list_behaviour_types <game mode name/index>");
+	}
+	else
+	{
+		new String:arg1[GAME_MODE_NAME_MAX_LENGTH];
+		GetCmdArg(1, arg1, sizeof(arg1));
+
+		new GameMode:gameMode = INVALID_GAME_MODE;
+
+		// Attempt to find the game mode
+		new index;
+		if (StringToIntEx(arg1, index))
+		{
+			new count = GetArraySize(g_hArrayGameModes);
+			if (index >= 0 && index < count)
+			{
+				gameMode = GetArrayGameMode(g_hArrayGameModes, index);
+			}
+		}
+		if (gameMode == INVALID_GAME_MODE)
+		{
+			gameMode = FindGameMode(arg1);
+		}
+
+		if (gameMode == INVALID_GAME_MODE)
+		{
+			PrintToConsole(client, "Game mode with name or index %s does not exist", arg1);
+		}
+		else
+		{
+			// Get game mode behaviour types and print them, if there's any
+			new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
+			new count = GetArraySize(behaviourTypes);
+			if (count == 0)
+			{
+				GetGameModeName(gameMode, arg1, sizeof(arg1));
+				PrintToConsole(client, "Game mode %s does not have any behaviour types", arg1);
+			}
+			else
+			{
+				new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
+				for (new i = 0; i < count; i++)
+				{
+					new BehaviourType:behaviourType = GetArrayBehaviourType(behaviourTypes, i);
+
+					GetBehaviourTypeName(behaviourType, behaviourTypeName, sizeof(behaviourTypeName));
+
+					PrintToConsole(client, "  %s", behaviourTypeName);
+				}
+			}
+		}
+	}
+	return Plugin_Handled;
+}
+
+public Action:Command_ListBehaviours(client, args)
+{
+	if (args < 1)
+	{
+		PrintToConsole(client, "Usage: gamma_list_behaviours <behaviour type name>");
+	}
+	else
+	{
+		new String:arg1[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
+		GetCmdArg(1, arg1, sizeof(arg1));
+
+		new BehaviourType:behaviourType = INVALID_BEHAVIOUR_TYPE;
+
+		// Attempt to find the behaviour type
+		if (behaviourType == INVALID_BEHAVIOUR_TYPE)
+		{
+			behaviourType = FindBehaviourType(arg1);
+		}
+
+		if (behaviourType == INVALID_BEHAVIOUR_TYPE)
+		{
+			PrintToConsole(client, "Behaviour type with name %s does not exist", arg1);
+		}
+		else
+		{
+			// Get behaviour type behaviours and print them, if there's any
+			new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
+			new count = GetArraySize(behaviours);
+			if (count == 0)
+			{
+				GetBehaviourTypeName(behaviourType, arg1, sizeof(arg1));
+				PrintToConsole(client, "Behaviour type %s does not have any behaviours", arg1);
+			}
+			else
+			{
+				new String:behaviourName[BEHAVIOUR_NAME_MAX_LENGTH];
+				new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
+				for (new i = 0; i < count; i++)
+				{
+					new Behaviour:behaviour = GetArrayBehaviour(behaviours, i);
+
+					GetBehaviourName(behaviour, behaviourName, sizeof(behaviourName));
+					GetBehaviourFullName(behaviour, behaviourFullName, sizeof(behaviourFullName));
+
+					PrintToConsole(client, "  %s (%s)", behaviourFullName, behaviourName);
+				}
+			}
+		}
+	}
+	return Plugin_Handled;
 }
 
 
@@ -1835,8 +1976,9 @@ stock GameMode:CreateGameMode(Handle:plugin, const String:name[], &GameModeCreat
 	SetTrieValue(gameMode, GAME_MODE_BEHAVIOUR_TYPES, CreateArray());
 
 	// Then push it to the global array and trie
+	// Don't forget to convert the string to lower cases!
 	PushArrayCell(g_hArrayGameModes, gameMode);
-	SetTrieValue(g_hTrieGameModes, name, gameMode);
+	SetTrieValueCaseInsensitive(g_hTrieGameModes, name, gameMode);
 
 	// Make the game mode initialize it's BehaviourTypes, if it needs to, also it's only valid during this call!
 	g_hGameModeInitializing = GameMode:gameMode;
@@ -1870,7 +2012,7 @@ stock GameMode:CreateGameMode(Handle:plugin, const String:name[], &GameModeCreat
 stock GameMode:FindGameMode(const String:name[])
 {
 	new GameMode:gameMode;
-	if (GetTrieValue(g_hTrieGameModes, name, gameMode))
+	if (GetTrieValueCaseInsensitive(g_hTrieGameModes, name, gameMode))
 	{
 		return gameMode;
 	}
@@ -1958,7 +2100,7 @@ stock DestroyGameMode(GameMode:gameMode)
 
 	// Remove from global array and trie
 	RemoveFromArray(g_hArrayGameModes, FindValueInArray(g_hArrayGameModes, gameMode));
-	RemoveFromTrie(g_hTrieGameModes, name);
+	RemoveFromTrieCaseInsensitive(g_hTrieGameModes, name);
 
 	// Destroy all associated behaviour types
 	DEBUG_PRINT1("Gamma:DestroyGameMode(\"%s\") : Destroy Behaviour Types", name);
@@ -2026,8 +2168,9 @@ stock BehaviourType:CreateBehaviourType(Handle:plugin, const String:name[], &Beh
 	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_BEHAVIOURS, CreateArray());
 
 	// Then push the new behaviour type to the global array and trie
+	// Make sure to lower the case of name
 	PushArrayCell(g_hArrayBehaviourTypes, behaviourType);
-	SetTrieValue(g_hTrieBehaviourTypes, name, behaviourType);
+	SetTrieValueCaseInsensitive(g_hTrieBehaviourTypes, name, behaviourType);
 
 	// Add behaviour type to game mode
 	AddBehaviourType(g_hGameModeInitializing, BehaviourType:behaviourType);
@@ -2040,7 +2183,7 @@ stock BehaviourType:CreateBehaviourType(Handle:plugin, const String:name[], &Beh
 stock BehaviourType:FindBehaviourType(const String:name[])
 {
 	new BehaviourType:behaviourType;
-	if (GetTrieValue(g_hTrieBehaviourTypes, name, behaviourType))
+	if (GetTrieValueCaseInsensitive(g_hTrieBehaviourTypes, name, behaviourType))
 	{
 		return behaviourType;
 	}
@@ -2170,7 +2313,7 @@ stock DestroyBehaviourType(BehaviourType:behaviourType)
 
 	// Remove from global array and trie
 	RemoveFromArray(g_hArrayBehaviourTypes, FindValueInArray(g_hArrayBehaviourTypes, behaviourType));
-	RemoveFromTrie(g_hTrieBehaviourTypes, behaviourTypeName);
+	RemoveFromTrieCaseInsensitive(g_hTrieBehaviourTypes, behaviourTypeName);
 
 
 	// Close the requirements handle
@@ -2262,8 +2405,9 @@ stock Behaviour:CreateBehaviour(Handle:plugin, BehaviourType:type, const String:
 	DEBUG_PRINT4("Gamma:CreateBehaviour(%X, \"%s\", \"%s\") : Full name (%s)", plugin, behaviourTypeName, name, behaviourFullName);
 
 	// Now push it to the global array and trie for behaviours
+	// Don't forget to convert the name to lower cases
 	PushArrayCell(g_hArrayBehaviours, behaviour);
-	SetTrieValue(g_hTrieBehaviours, behaviourFullName, behaviour);
+	SetTrieValueCaseInsensitive(g_hTrieBehaviours, name, behaviour);
 	AddBehaviourTypeBehaviour(type, Behaviour:behaviour);
 
 	// If current game mode == behaviour types owner, we should add the behaviour as a target filter as well!
@@ -2289,7 +2433,7 @@ stock Behaviour:FindBehaviour(BehaviourType:behaviourType, const String:name[])
 stock Behaviour:FindBehaviourByFullName(const String:fullname[])
 {
 	new Behaviour:behaviour;
-	if (GetTrieValue(g_hTrieBehaviours, fullname, behaviour))
+	if (GetTrieValueCaseInsensitive(g_hTrieBehaviours, fullname, behaviour))
 	{
 		return behaviour;
 	}
@@ -2522,7 +2666,7 @@ stock DestroyBehaviour(Behaviour:behaviour)
 
 	// Remove from the global array and trie
 	RemoveFromArray(g_hArrayBehaviours, FindValueInArray(g_hArrayBehaviours, behaviour));
-	RemoveFromTrie(g_hTrieBehaviours, behaviourFullName);
+	RemoveFromTrieCaseInsensitive(g_hTrieBehaviours, behaviourFullName);
 	RemoveBehaviourTypeBehaviour(GetBehaviourType(behaviour), behaviour);
 
 	// Take away the behaviour from all possessed players
@@ -2567,6 +2711,48 @@ stock bool:ValidateName(const String:name[])
 	return (length > 0);
 }
 
+// Converts a string to lower case
+stock StringToLower(const String:input[], String:output[], size)
+{
+	for (new i = 0; i < size; i++)
+	{
+		if (IsCharUpper(input[i]))
+		{
+			output[i] = CharToLower(input[i]);
+		}
+		else
+		{
+			output[i] = input[i];
+		}
+	}
+}
+
+// Gets a trie value case insensitive (well, lower cased, meant to be used together with the 2 others)
+stock bool:GetTrieValueCaseInsensitive(Handle:trie, const String:key[], &any:value)
+{
+	new length = strlen(key)+1;
+	new String:trieKey[length];
+	StringToLower(key, trieKey, length);
+	return GetTrieValue(trie, trieKey, value);
+}
+
+// Sets a trie value case insensitive (well, lower cased, meant to be used together with the 2 others)
+stock bool:SetTrieValueCaseInsensitive(Handle:trie, const String:key[], any:value)
+{
+	new length = strlen(key)+1;
+	new String:trieKey[length];
+	StringToLower(key, trieKey, length);
+	return SetTrieValue(trie, trieKey, value);
+}
+
+// Removes a trie value case insensitive (well, lower cased, meant to be used together with the 2 others)
+stock RemoveFromTrieCaseInsensitive(Handle:trie, const String:key[])
+{
+	new length = strlen(key)+1;
+	new String:trieKey[length];
+	StringToLower(key, trieKey, length);
+	return RemoveFromTrie(trie, trieKey);
+}
 
 
 
