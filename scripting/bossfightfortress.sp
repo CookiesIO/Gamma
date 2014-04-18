@@ -9,7 +9,7 @@
 //#define GAMMA_CONTAINS_BEHAVIOUR
 
 // Uncomment if your plugin includes a game mode and/or behaviour but you need
-// to use OnPluginEnd
+// to use OnPluginEnd, but you MUST CALL __GAMMA_PluginUnloading() in OnPluginEnd()
 //#define GAMMA_MANUAL_UNLOAD_NOTIFICATION 
 
 
@@ -20,6 +20,9 @@
 
 #include <gamma>
 #include <bossfightfortress>
+
+// We might not use g_hMyGameMode now, but that doesn't mean it's not nice to have it
+#pragma unused g_hMyGameMode
 
 // Storage variables for MyGameMode and BossBehaviourType
 new GameMode:g_hMyGameMode;
@@ -118,12 +121,10 @@ public bool:Gamma_IsGameModeAbleToStartRequest()
 	// We can only start in valid maps
 	new bool:canStart = g_bIsValidMap;
 
-	// We can start if there's 1 or more behaviours of BossBehaviourType
+	// We can start if BossBehaviourType has any behaviours registered
 	if (canStart)
 	{
-		new Handle:behaviours = Gamma_GetBehaviourTypeBehaviours(g_hBossBehaviourType);
-		canStart = GetArraySize(behaviours) > 0;
-		CloseHandle(behaviours);
+		canStart = Gamma_BehaviourTypeHasBehaviours(g_hBossBehaviourType);
 	}
 
 	// We must also be sure we have a client to become the boss
@@ -140,17 +141,10 @@ public Gamma_OnGameModeStart()
 	// Set round state
 	g_eRoundState = RoundState_Preround;
 
-	// Get a random behaviour of BossBehaviourType
-	new Handle:behaviours = Gamma_GetBehaviourTypeBehaviours(g_hBossBehaviourType);
-	new Behaviour:bossBehaviour = GetArrayBehaviour(behaviours, GetRandomInt(0, GetArraySize(behaviours) - 1));
-
-	// Don't forget to close the behaviours handle! It's a cloned array of the one internal in Gamma
-	CloseHandle(behaviours);
-
-	// Get our next boss! And give him the boss as well
-	new nextBoss = GetNextInQueue();
-	g_iCurrentBoss = nextBoss;
-	Gamma_GiveBehaviour(nextBoss, bossBehaviour);
+	// Get our next boss! And give him a random boss as well
+	new client = GetNextInQueue();
+	g_iCurrentBoss = client;
+	Gamma_GiveRandomBehaviour(client, g_hBossBehaviourType);
 
 	for (new i = 1; i <= MaxClients; i++)
 	{
@@ -176,6 +170,10 @@ public Gamma_OnGameModeStart()
 
 public Gamma_OnGameModeEnd()
 {
+	// In some cases, our game may end right after it's started
+	// which could bring some problems if we don't set g_eRoundState to RoundState_GameOver
+	g_eRoundState = RoundState_GameOver;
+
 	// Unhook our events
 	UnhookEvent("arena_round_start", Event_ArenaRoundStart);
 	UnhookEvent("post_inventory_application", Event_PostInventoryApplication);
@@ -262,13 +260,7 @@ public Gamma_OnBehaviourReleasedClient(client, Behaviour:behaviour)
 			case RoundState_Preround:
 			{
 				// Get a new random boss behaviour
-				new Handle:behaviours = Gamma_GetBehaviourTypeBehaviours(g_hBossBehaviourType);
-				new Behaviour:bossBehaviour = INVALID_BEHAVIOUR;
-				if (GetArraySize(behaviours))
-				{
-					bossBehaviour = GetArrayBehaviour(behaviours, GetRandomInt(0, GetArraySize(behaviours)));
-				}
-				CloseHandle(behaviours);
+				new Behaviour:bossBehaviour = Gamma_GetRandomBehaviour(g_hBossBehaviourType);
 
 				if (bossBehaviour == INVALID_BEHAVIOUR)
 				{

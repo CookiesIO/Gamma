@@ -9,12 +9,15 @@
 //#define GAMMA_CONTAINS_BEHAVIOUR
 
 // Uncomment if your plugin includes a game mode and/or behaviour but you need
-// to use OnPluginEnd
+// to use OnPluginEnd, but you MUST CALL __GAMMA_PluginUnloading() in OnPluginEnd()
 //#define GAMMA_MANUAL_UNLOAD_NOTIFICATION 
 
 
 #include <sourcemod>
 #include <gamma>
+
+// We might not use g_hMyGameMode now, but that doesn't mean it's not nice to have it
+#pragma unused g_hMyGameMode
 
 // Storage variables for MyGameMode and MyBehaviourType
 new GameMode:g_hMyGameMode;
@@ -39,31 +42,20 @@ public Gamma_OnCreateGameMode()
 public bool:Gamma_IsGameModeAbleToStartRequest()
 {
 	// We can start if there's 1 or more behaviours of MyBehaviourType
-	new Handle:behaviours = Gamma_GetBehaviourTypeBehaviours(g_hMyBehaviourType);
-	new bool:canStart = GetArraySize(behaviours) > 0;
-	CloseHandle(behaviours);
-	return canStart;
+	return Gamma_BehaviourTypeHasBehaviours(g_hMyBehaviourType);
 }
 
 public Gamma_OnGameModeStart()
 {
-	// Get all behaviours of MyBehaviourType
-	new Handle:behaviours = Gamma_GetBehaviourTypeBehaviours(g_hMyBehaviourType);
-
 	for (new i = 1; i <= MaxClients; i++)
 	{
 		// Give a random behaviour to all clients on round start!
 		if (IsClientInGame(i))
 		{
-			new Behaviour:behaviour = GetArrayBehaviour(behaviours, GetRandomInt(0, GetArraySize(behaviours) - 1));
-			Gamma_GiveBehaviour(i, behaviour);
+			new Behaviour:behaviour = Gamma_GiveRandomBehaviour(i, g_hMyBehaviourType);
 
 			// Also, now that the player is given the behaviour we want to call MyFunctionRequirement
 			Gamma_SimpleBehaviourFunctionCall(behaviour, "MyFunctionRequirement", _, i);
-			//break;
 		}
 	}
-
-	// Don't forget to close the behaviours handle! It's a cloned array of the one internal in Gamma
-	CloseHandle(behaviours);
 }

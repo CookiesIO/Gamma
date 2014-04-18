@@ -309,6 +309,8 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 	CreateNative("Gamma_GetBehaviourTypeName", Native_Gamma_GetBehaviourTypeName);
 	CreateNative("Gamma_AddBehaviourTypeRequirement", Native_Gamma_AddBehaviourTypeRequirement);
 	CreateNative("Gamma_GetBehaviourTypeBehaviours", Native_Gamma_GetBehaviourTypeBehaviours);
+	CreateNative("Gamma_BehaviourTypeHasBehaviours", Native_Gamma_BehaviourTypeHasBehaviours);
+	CreateNative("Gamma_GetRandomBehaviour", Native_Gamma_GetRandomBehaviour);
 
 	// Behaviour natives
 	CreateNative("Gamma_RegisterBehaviour", Native_Gamma_RegisterBehaviour);
@@ -323,6 +325,7 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 	// Client natives
 	CreateNative("Gamma_GiveBehaviour", Native_Gamma_GiveBehaviour);
 	CreateNative("Gamma_TakeBehaviour", Native_Gamma_TakeBehaviour);
+	CreateNative("Gamma_GiveRandomBehaviour", Native_Gamme_GiveRandomBehaviour);
 	CreateNative("Gamma_GetPlayerBehaviours", Native_Gamma_GetPlayerBehaviours);
 
 	// Game mode properties natives
@@ -1432,6 +1435,18 @@ public Native_Gamma_GetBehaviourTypeBehaviours(Handle:plugin, numParams)
 	return _:TransferHandleOwnership(behaviours, plugin);
 }
 
+public Native_Gamma_BehaviourTypeHasBehaviours(Handle:plugin, numParams)
+{
+	new BehaviourType:behaviourType = BehaviourType:GetNativeCell(1);
+	return _:BehaviourTypeHasBehaviours(behaviourType);
+}
+
+public Native_Gamma_GetRandomBehaviour(Handle:plugin, numParams)
+{
+	new BehaviourType:behaviourType = BehaviourType:GetNativeCell(1);
+	return _:GetRandomBehaviour(behaviourType);
+}
+
 
 /*******************************************************************************
  *	BEHAVIOUR NATIVES
@@ -1617,6 +1632,29 @@ public Native_Gamma_TakeBehaviour(Handle:plugin, numParams)
 
 	BehaviourReleasePlayer(behaviour, client);
 	return 1;
+}
+
+public Native_Gamme_GiveRandomBehaviour(Handle:plugin, numParams)
+{
+	new client = GetNativeCell(1);
+	new BehaviourType:behaviourType = BehaviourType:GetNativeCell(2);
+
+	if (g_hCurrentGameModePlugin != plugin)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call Gamma_GiveRandomBehaviour");
+	}
+	if (client < 1 || client > MaxClients)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Invalid client index %d", client);
+	}
+	if (!IsClientInGame(client))
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Client %d is not in game", client);
+	}
+
+	new Behaviour:behaviour = GetRandomBehaviour(behaviourType);
+	BehaviourPossessPlayer(behaviour, client);
+	return _:behaviour;
 }
 
 public Native_Gamma_GetPlayerBehaviours(Handle:plugin, numParams)
@@ -2321,6 +2359,25 @@ stock Handle:GetBehaviourTypeBehaviours(BehaviourType:behaviourType)
 	return INVALID_HANDLE;
 }
 
+// Gets a random behaviour
+stock bool:BehaviourTypeHasBehaviours(BehaviourType:behaviourType)
+{
+	new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
+	return (GetArraySize(behaviours) > 0);
+}
+
+// Gets a random behaviour
+stock Behaviour:GetRandomBehaviour(BehaviourType:behaviourType)
+{
+	new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
+	if (GetArraySize(behaviours) > 0)
+	{
+		return GetArrayBehaviour(behaviours, GetRandomInt(0, GetArraySize(behaviours) - 1));
+	}
+	return INVALID_BEHAVIOUR;
+}
+
+// Destroys the behaviour type
 stock DestroyBehaviourType(BehaviourType:behaviourType)
 {
 	new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];

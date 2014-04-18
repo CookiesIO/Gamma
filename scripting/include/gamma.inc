@@ -245,6 +245,21 @@ native Gamma_AddBehaviourTypeRequirement(BehaviourType:behaviourType, const Stri
  */
 native Handle:Gamma_GetBehaviourTypeBehaviours(BehaviourType:behaviourType);
 
+/**
+ *	Returns whether or not a behaviour type has registered behaviours
+ *
+ *	@param behaviourType	Behaviour type to see if it has any behaviours
+ *	@return					True if it has behaviours, false otherwise
+ */
+native bool:Gamma_BehaviourTypeHasBehaviours(BehaviourType:behaviourType);
+
+/**
+ *	Gets a random behaviour of type
+ *
+ *	@param behaviourType	Behaviour type to get a random behaviour of
+ *	@return					Behaviour if the behaviour type has behaviours, otherwise INVALID_BEHAVIOUR
+ */
+native Behaviour:Gamma_GetRandomBehaviour(BehaviourType:behaviourType);
 
 
 
@@ -420,6 +435,17 @@ native Gamma_GiveBehaviour(client, Behaviour:behaviour);
  *	@error				Invalid client index or INVALID_BEHAVIOUR
  */
 native Gamma_TakeBehaviour(client, Behaviour:behaviour);
+
+/**
+ *	Gives a client a random Behaviour
+ *	Can only be called by the current game mode's plugin
+ *
+ *	@param client			Client index to give the behaviour to
+ *	@param behaviourType	A random behaviour of this type to give to the client
+ *	@return					Behaviour given or INVALID_BEHAVIOUR
+ *	@error					Invalid client index or INVALID_BEHAVIOUR_TYPE
+ */
+native Behaviour:Gamma_GiveRandomBehaviour(client, BehaviourType:behaviourType);
 
 /**
  *	Gets all the behaviours possessing a player
@@ -694,6 +720,8 @@ public __pl_gamma_SetNTVOptional()
 	MarkNativeAsOptional("Gamma_GetBehaviourTypeName");
 	MarkNativeAsOptional("Gamma_AddBehaviourTypeRequirement");
 	MarkNativeAsOptional("Gamma_GetBehaviourTypeBehaviours");
+	MarkNativeAsOptional("Gamma_BehaviourTypeHasBehaviours");
+	MarkNativeAsOptional("Gamma_GetRandomBehaviour");
 
 	// Behaviour natives
 	MarkNativeAsOptional("Gamma_RegisterBehaviour");
@@ -708,6 +736,7 @@ public __pl_gamma_SetNTVOptional()
 	// Client natives
 	MarkNativeAsOptional("Gamma_GiveBehaviour");
 	MarkNativeAsOptional("Gamma_TakeBehaviour");
+	MarkNativeAsOptional("Gamma_GiveRandomBehaviour");
 	MarkNativeAsOptional("Gamma_GetPlayerBehaviours");
 
 	// Game mode properties natives
