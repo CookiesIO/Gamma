@@ -73,5 +73,5 @@ public Common_RoundStartEvent(Handle:event, const String:name[], bool:dontBroadc
 public Common_RoundEndEvent(Handle:event, const String:name[], bool:dontBroadcast)
 {
 	DEBUG_PRINT1("Gamma:Common_RoundEndEvent() : %s", name);
-	StopGameMode(false);
+	StopGameMode(GameModeEndReason_RoundEnded);
 }

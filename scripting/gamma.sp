@@ -45,7 +45,7 @@
  *	INVALID_BEHAVIOUR instead of causing more incomprehensible errors.
  */
 
-#define PLUGIN_VERSION "0.1 alpha"
+#define PLUGIN_VERSION "0.2 alpha"
 
 public Plugin:myinfo = 
 {
@@ -260,7 +260,7 @@ new Handle:g_hGlobal_OnGameModeStarted;				// Gamma_OnGameModeStarted(GameMode:g
 new Handle:g_hGlobal_OnGameModeEnded;				// Gamma_OnGameModeEnded(GameMode:gameMode)
 
 new Handle:g_hGlobal_OnBehaviourPossessedClient;	// Gamma_OnClientPossessedByBehaviour(client, Behaviour:behaviour)
-new Handle:g_hGlobal_OnBehaviourReleasedClient;		// Gamma_OnClientReleasedFromBehaviour(client, Behaviour:behaviour)
+new Handle:g_hGlobal_OnBehaviourReleasedClient;		// Gamma_OnClientReleasedFromBehaviour(client, Behaviour:behaviour, BehaviourReleaseReason:reason)
 
 // Cvars
 new Handle:g_hCvarEnabled;	// gamma_enabled "<0|1>"
@@ -436,15 +436,15 @@ public OnAllPluginsLoaded()
 	g_hGlobal_OnGameModeDestroyed = CreateGlobalForward("Gamma_OnGameModeDestroyed", ET_Ignore, Param_Cell);
 
 	g_hGlobal_OnGameModeStarted = CreateGlobalForward("Gamma_OnGameModeStarted", ET_Ignore, Param_Cell);
-	g_hGlobal_OnGameModeEnded = CreateGlobalForward("Gamma_OnGameModeEnded", ET_Ignore, Param_Cell);
+	g_hGlobal_OnGameModeEnded = CreateGlobalForward("Gamma_OnGameModeEnded", ET_Ignore, Param_Cell, Param_Cell);
 
 	g_hGlobal_OnBehaviourPossessedClient = CreateGlobalForward("Gamma_OnBehaviourPossessedClient", ET_Ignore, Param_Cell, Param_Cell);
-	g_hGlobal_OnBehaviourReleasedClient = CreateGlobalForward("Gamma_OnBehaviourReleasedClient", ET_Ignore, Param_Cell, Param_Cell);
+	g_hGlobal_OnBehaviourReleasedClient = CreateGlobalForward("Gamma_OnBehaviourReleasedClient", ET_Ignore, Param_Cell, Param_Cell, Param_Cell);
 }
 
 public OnPluginEnd()
 {
-	StopGameMode(true);
+	StopGameMode(GameModeEndReason_ForceStopped);
 
 	// Destroy all game modes when the plugin ends,
 	// cleans up all plugins tied to them as well,
@@ -624,7 +624,7 @@ public OnMapStart()
 public OnMapEnd()
 {
 	CleanUpOnMapEnd();
-	StopGameMode(false);
+	StopGameMode(GameModeEndReason_RoundEnded);
 }
 
 public OnClientPutInServer(client)
@@ -636,7 +636,7 @@ public OnClientPutInServer(client)
 
 public OnClientDisconnect(client)
 {
-	ReleasePlayerFromBehaviours(client);
+	ReleasePlayerFromBehaviours(client, BehaviourReleaseReason_ClientDisconnected);
 
 	CloseHandle(g_hPlayerArrayBehaviours[client]);
 	CloseHandle(g_hPlayerPrivateBehaviourPlayerRunCmd[client]);
@@ -686,29 +686,29 @@ public Action:OnPlayerRunCmd(client, &buttons, &impulse, Float:vel[3], Float:ang
  *	EVENT HELPERS
  *******************************************************************************/
 
-stock StopGameMode(bool:forceful)
+stock StopGameMode(GameModeEndReason:reason)
 {
 	if (g_hCurrentGameMode != INVALID_GAME_MODE)
 	{
-		DEBUG_PRINT1("Gamma:StopGameMode(forceful=%d)", forceful);
+		DEBUG_PRINT1("Gamma:StopGameMode(reason=%d)", reason);
 
 		RemoveTargetFilters(g_hCurrentGameMode);
 
-		SimpleOptionalPluginCall(g_hCurrentGameModePlugin, "Gamma_OnGameModeEnd");
-		SimpleForwardCallOneParam(g_hGlobal_OnGameModeEnded, g_hCurrentGameMode);
+		SimpleOptionalPluginCallOneParam(g_hCurrentGameModePlugin, "Gamma_OnGameModeEnd", reason);
+		SimpleForwardCallTwoParams(g_hGlobal_OnGameModeEnded, g_hCurrentGameMode, reason);
 
 		// Release all clients from their behaviours (curses!)
-		DEBUG_PRINT1("Gamma:StopGameMode(forceful=%d) : Releasing all players", forceful);
+		DEBUG_PRINT1("Gamma:StopGameMode(reason=%d) : Releasing all players", reason);
 		for (new i = 1; i <= MaxClients; i++)
 		{
 			if (IsClientInGame(i))
 			{
-				ReleasePlayerFromBehaviours(i);
+				ReleasePlayerFromBehaviours(i, BehaviourReleaseReason_GameModeEnded);
 			}
 		}
-		DEBUG_PRINT1("Gamma:StopGameMode(forceful=%d) : Released all players", forceful);
+		DEBUG_PRINT1("Gamma:StopGameMode(reason=%d) : Released all players", reason);
 
-		if (forceful)
+		if (reason == GameModeEndReason_ForceStopped)
 		{
 			// Force roundend/stalemate
 			ForceRoundEnd();
@@ -729,7 +729,7 @@ stock ChooseAndStartGameMode()
 	// One of the cases are CTeamplayGameRules::RoundRespawn being called with a
 	// PreviousRoundEnd in between, a little helper fix is to never start without
 	// Any players, which I'll add a little further down!
-	StopGameMode(false);
+	StopGameMode(GameModeEndReason_RoundEnded);
 
 	if (GetConVarBool(g_hCvarEnabled))
 	{
@@ -1210,15 +1210,15 @@ public bool:BehaviourFullNameMultiTargetFilter(const String:pattern[], Handle:cl
  *******************************************************************************/
 
  // Frees a player from all his behaviours
-stock ReleasePlayerFromBehaviours(client)
+stock ReleasePlayerFromBehaviours(client, BehaviourReleaseReason:reason)
 {
 	new Handle:behaviours = g_hPlayerArrayBehaviours[client];
 
-	DEBUG_PRINT2("Gamma:ReleasePlayerFromBehaviours(\"%N\") : Behaviour count (%d)",client,GetArraySize(behaviours));
+	DEBUG_PRINT2("Gamma:ReleasePlayerFromBehaviours(\"%N\") : Behaviour count (%d)", client, GetArraySize(behaviours));
 
 	DECREASING_LOOP(j,behaviours)
 	{
-		BehaviourReleasePlayer(GetArrayBehaviour(behaviours, j), client);
+		BehaviourReleasePlayer(GetArrayBehaviour(behaviours, j), client, reason);
 	}
 }
 
@@ -1350,7 +1350,7 @@ public Native_Gamma_ForceStopGameMode(Handle:plugin, numParams)
 	{
 		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call Gamma_ForceStopGameMode");
 	}
-	StopGameMode(true);
+	StopGameMode(GameModeEndReason_ForceStopped);
 	return 1;
 }
 
@@ -1630,7 +1630,7 @@ public Native_Gamma_TakeBehaviour(Handle:plugin, numParams)
 		return ThrowNativeError(SP_ERROR_NATIVE, "Client %d is not in game", client);
 	}
 
-	BehaviourReleasePlayer(behaviour, client);
+	BehaviourReleasePlayer(behaviour, client, BehaviourReleaseReason_GameModeTook);
 	return 1;
 }
 
@@ -2146,7 +2146,7 @@ stock DestroyGameMode(GameMode:gameMode)
 	// If the game mode is currently running, stop it forcefully
 	if (gameMode == g_hCurrentGameMode)
 	{
-		StopGameMode(true);
+		StopGameMode(GameModeEndReason_ForceStopped);
 	}
 
 	// Call the Destroy listeners
@@ -2643,7 +2643,7 @@ stock BehaviourPossessPlayer(Behaviour:behaviour, client)
 }
 
 // Releases a player from the grasp of the behaviour
-stock BehaviourReleasePlayer(Behaviour:behaviour, client)
+stock BehaviourReleasePlayer(Behaviour:behaviour, client, BehaviourReleaseReason:reason)
 {
 	// Check if the client owns the behaviour before attempting to take it away from him
 	new index = FindValueInArray(g_hPlayerArrayBehaviours[client], behaviour);
@@ -2678,8 +2678,8 @@ stock BehaviourReleasePlayer(Behaviour:behaviour, client)
 		RemoveFromArray(possessedPlayers, FindValueInArray(possessedPlayers, client));
 
 		// Then notify the behaviour and other plugins that the client has been released
-		SimpleOptionalPluginCallOneParam(plugin, "Gamma_OnBehaviourReleasingClient", client);
-		SimpleForwardCallTwoParams(g_hGlobal_OnBehaviourReleasedClient, client, behaviour);
+		SimpleOptionalPluginCallTwoParams(plugin, "Gamma_OnBehaviourReleasingClient", client, reason);
+		SimpleForwardCallThreeParams(g_hGlobal_OnBehaviourReleasedClient, client, behaviour, reason);
 	}
 }
 
@@ -2748,7 +2748,7 @@ stock DestroyBehaviour(Behaviour:behaviour)
 	new Handle:possessedPlayers = GetBehaviourPossessedPlayers(behaviour);
 	DECREASING_LOOP(i,possessedPlayers)
 	{
-		BehaviourReleasePlayer(behaviour, GetArrayCell(possessedPlayers, i));
+		BehaviourReleasePlayer(behaviour, GetArrayCell(possessedPlayers, i), BehaviourReleaseReason_BehaviourUnloaded);
 	}
 	DEBUG_PRINT1("Gamma:DestroyBehaviour(\"%s\") : Released players", behaviourFullName);
 
@@ -2964,6 +2964,23 @@ stock SimpleOptionalPluginCallOneParam(Handle:plugin, const String:function[], a
 	return defaultValue;
 }
 
+// Calls an optional function in the targetted plugin, if it exists, with 1 cell parameter
+stock SimpleOptionalPluginCallTwoParams(Handle:plugin, const String:function[], any:param1, any:param2, any:defaultValue=0, &error=0)
+{
+	new Function:func = GetFunctionByName(plugin, function);
+	if(func != INVALID_FUNCTION)
+	{
+		new result;
+		Call_StartFunction(plugin, func);
+		Call_PushCell(param1);
+		Call_PushCell(param2);
+		error = Call_Finish(result);
+		return result;
+	}
+	error = SP_ERROR_NONE;
+	return defaultValue;
+}
+
 // Calls a forward with a single cell parameter
 stock SimpleForwardCallOneParam(Handle:fwd, any:param, &error=0)
 {
@@ -2981,6 +2998,18 @@ stock SimpleForwardCallTwoParams(Handle:fwd, any:param1, any:param2, &error=0)
 	Call_StartForward(fwd);
 	Call_PushCell(param1);
 	Call_PushCell(param2);
+	error = Call_Finish(result);
+	return result;
+}
+
+// Calls a forward with three cell parameters
+stock SimpleForwardCallThreeParams(Handle:fwd, any:param1, any:param2, any:param3, &error=0)
+{
+	new result;
+	Call_StartForward(fwd);
+	Call_PushCell(param1);
+	Call_PushCell(param2);
+	Call_PushCell(param3);
 	error = Call_Finish(result);
 	return result;
 }

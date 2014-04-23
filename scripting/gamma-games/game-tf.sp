@@ -93,6 +93,6 @@ public MRESReturn:TF_RoundRespawn()
 public MRESReturn:TF_PreviousRoundEnd()
 {
 	DEBUG_PRINT0("Gamma:TF_PreviousRoundEnd()");
-	StopGameMode(false);
+	StopGameMode(GameModeEndReason_RoundEnded);
 	return MRES_Ignored;
 }

@@ -46,6 +46,29 @@ enum Behaviour
 }
 
 
+/*******************************************************************************
+ *	REASON ENUMS					
+ *******************************************************************************/
+
+/**
+ *	The reason the game mode ended
+ */
+enum GameModeEndReason
+{
+	GameModeEndReason_RoundEnded,
+	GameModeEndReason_ForceStopped,
+}
+
+/**
+ *	The reason the game mode ended
+ */
+enum BehaviourReleaseReason
+{
+	BehaviourReleaseReason_GameModeTook,
+	BehaviourReleaseReason_GameModeEnded,
+	BehaviourReleaseReason_BehaviourUnloaded,
+	BehaviourReleaseReason_ClientDisconnected,
+}
 
 
 /*******************************************************************************
@@ -174,9 +197,10 @@ forward Gamma_OnGameModeStart();
 /**
  *	Called on the game mode selected in the game mode manager when a round ends
  *
+ *	@param reason	Reason the game mode ended
  *	@noreturn
  */
-forward Gamma_OnGameModeEnd();
+forward Gamma_OnGameModeEnd(GameModeEndReason:reason);
 
 /**
  *	Called when the game mode has fully started, this is a global forward
@@ -189,8 +213,9 @@ forward Gamma_OnGameModeStarted(GameMode:gameMode);
  *	Called when the game mode has fully ended, this is a global forward
  *
  *	@param gameMode		Reference to the game mode ended
+ *	@param reason		Reason the game mode ended
  */
-forward Gamma_OnGameModeEnded(GameMode:gameMode);
+forward Gamma_OnGameModeEnded(GameMode:gameMode, GameModeEndReason:reason);
 
 
 
@@ -360,9 +385,10 @@ forward Gamma_OnBehaviourPossessingClient(client);
  *	Called on the owning behaviour when it's taken from a client
  *
  *	@param client		Client the behaviour was taken from
+ *	@param reason		Reason the client was released
  *	@noreturn
  */
-forward Gamma_OnBehaviourReleasingClient(client);
+forward Gamma_OnBehaviourReleasingClient(client, BehaviourReleaseReason:reason);
 
 /**
  *	Called after a client has been given a behaviour
@@ -378,9 +404,10 @@ forward Gamma_OnBehaviourPossessedClient(client, Behaviour:behaviour);
  *
  *	@param client		Client the behaviour was given to
  *	@param behaviour	Behaviour that was given
+ *	@param reason		Reason the client was released
  *	@noreturn
  */
-forward Gamma_OnBehaviourReleasedClient(client, Behaviour:behaviour);
+forward Gamma_OnBehaviourReleasedClient(client, Behaviour:behaviour, BehaviourReleaseReason:reason);
 
 /**
  *	Called on a behaviour when a clients movement buttons are being processed, if the client owns the behaviour
