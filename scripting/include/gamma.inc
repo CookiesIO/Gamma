@@ -342,6 +342,15 @@ native Gamma_GetBehaviourFullName(Behaviour:behaviour, String:buffer[], maxlen);
 native Handle:Gamma_GetPossessedPlayers(Behaviour:behaviour);
 
 /**
+ *	Gets whether or not a Behaviour has implemented a function
+ *
+ *	@param behaviour	Behaviour to check whether or not has implemented a function
+ *	@param functionName	Name of the function to check exists
+ *	@return				True if the function was found, false otherwise
+ */
+native bool:Gamma_BehaviourHasFunction(Behaviour:behaviour, String:functionName[]);
+
+/**
  *	Adds a function in the behaviour to the forward, if it exists
  *
  *	@param behaviour	Behaviour to fetch function from
@@ -756,6 +765,7 @@ public __pl_gamma_SetNTVOptional()
 	MarkNativeAsOptional("Gamma_GetBehaviourName");
 	MarkNativeAsOptional("Gamma_GetBehaviourFullName");
 	MarkNativeAsOptional("Gamma_GetPossessedPlayers");
+	MarkNativeAsOptional("Gamma_BehaviourHasFunction");
 	MarkNativeAsOptional("Gamma_AddBehaviourFunctionToForward");
 	MarkNativeAsOptional("Gamma_RemoveBehaviourFunctionFromForward");
 	MarkNativeAsOptional("Gamma_SimpleBehaviourFunctionCall");

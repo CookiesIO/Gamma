@@ -318,6 +318,7 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 	CreateNative("Gamma_GetBehaviourName", Native_Gamma_GetBehaviourName);
 	CreateNative("Gamma_GetBehaviourFullName", Native_Gamma_GetBehaviourFullName);
 	CreateNative("Gamma_GetPossessedPlayers", Native_Gamma_GetPossessedPlayers);
+	CreateNative("Gamma_BehaviourHasFunction", Native_Gamma_BehaviourHasFunction);
 	CreateNative("Gamma_AddBehaviourFunctionToForward", Native_Gamma_AddBehaviourFunctionToForward);
 	CreateNative("Gamma_RemoveBehaviourFunctionFromForward", Native_Gamma_RemoveBehaviourFunctionFromForward);
 	CreateNative("Gamma_SimpleBehaviourFunctionCall", Native_Gamma_SimpleBehaviourFunctionCall);
@@ -1519,6 +1520,19 @@ public Native_Gamma_GetPossessedPlayers(Handle:plugin, numParams)
 	// Clone the array so the target plugin can't make changes to the internal data
 	possessedPlayers = CloneArray(possessedPlayers);
 	return _:TransferHandleOwnership(possessedPlayers, plugin);
+}
+
+public Native_Gamma_BehaviourHasFunction(Handle:plugin, numParams)
+{
+	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
+
+	new length;
+	GetNativeStringLength(2, length);
+	new String:functionName[length+1];
+	GetNativeString(2, functionName, length+1);
+
+	new Function:function = GetFunctionInBehaviour(behaviour, functionName);
+	return (function != INVALID_FUNCTION);
 }
 
 public Native_Gamma_AddBehaviourFunctionToForward(Handle:plugin, numParams)
