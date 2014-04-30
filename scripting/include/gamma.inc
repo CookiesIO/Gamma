@@ -262,6 +262,15 @@ native Gamma_GetBehaviourTypeName(BehaviourType:behaviourType, String:buffer[], 
 native Gamma_AddBehaviourTypeRequirement(BehaviourType:behaviourType, const String:functionName[]);
 
 /**
+ *	Gets whether or not the behaviour type type owns the behaviour
+ *
+ *	@param behahviourType	Behaviour type see if behaviour is a child of
+ *	@param behaviour		Behaviour to check the behaviour type from
+ *	@return					True if the behaviour type owns the behaviour type, false otherwise
+ */
+native bool:Gamma_BehaviourTypeOwnsBehaviour(BehaviourType:behaviourType, Behaviour:behaviour);
+
+/**
  *	Returns an ADT array with Behaviours
  *
  *	@param behaviourType	Behaviour type to look for
@@ -496,153 +505,6 @@ native Handle:Gamma_GetPlayerBehaviours(client, BehaviourType:filter=INVALID_BEH
 
 
 
-
-
-/*******************************************************************************
- *	GAME MODE PROPERTIES
- *******************************************************************************/
-
-/**
- *	Sets a property on the game mode
- *
- *	@param gameMode			Game mode reference
- *	@param property			Key to the property
- *	@param value			Value to store in the property
- *	@noreturn
- */
-native Gamma_SetGameModeValue(GameMode:gameMode, const String:property[], any:value);
-
-/**
- *	Sets a property on the game mode
- *
- *	@param gameMode			Game mode reference
- *	@param property			Key to the property
- *	@param array			Array to store in the property
- *	@param num_items		Number of items in the array
- *	@noreturn
- */
-native Gamma_SetGameModeArray(GameMode:gameMode, const String:property[], any:array[], num_items);
-
-/**
- *	Sets a property on the game mode
- *
- *	@param gameMode			Game mode reference
- *	@param property			Key to the property
- *	@param value			String to store in the property
- *	@noreturn
- */
-native Gamma_SetGameModeString(GameMode:gameMode, const String:property[], const String:value[]);
-
-/**
- *	Gets a property on the game mode
- *
- *	@param gameMode			Game mode reference
- *	@param property			Key to the property
- *	@param value			Variable to store value
- *	@return					True on success, false if the the property is not set or is not set as a value
- */
-native bool:Gamma_GetGameModeValue(GameMode:gameMode, const String:property[], &any:value);
-
-/**
- *	Gets a property on the game mode
- *
- *	@param gameMode			Game mode reference
- *	@param property			Key to the property
- *	@param array			Buffer to store array
- *	@param max_size			Maximum size of the array
- *	@param written			Optional parameter to store the number of elements written to the buffer
- *	@return					True on success, false if the the property is not set or is not set as an array
- */
-native bool:Gamma_GetGameModeArray(GameMode:gameMode, const String:property[], any:array[], max_size, &written=0);
-
-/**
- *	Gets a property on the game mode
- *
- *	@param gameMode			Game mode reference
- *	@param property			Key to the property
- *	@param value			Buffer to store string
- *	@param max_size			Maximum size of the string
- *	@param written			Optional parameter to store the number of elements written to the buffer
- *	@return					True on success, false if the the property is not set or is not set as a string
- */
-native bool:Gamma_GetGameModeString(GameMode:gameMode, const String:property[], String:value[], max_size, &written=0);
-
-
-
-
-/*******************************************************************************
- *	BEHAVIOUR PROPERTIES
- *******************************************************************************/
-
-/**
- *	Sets a property in the behaviour
- *
- *	@param behaviour		Behaviour reference
- *	@param property			Key to the property
- *	@param value			Value to store in the property
- *	@noreturn
- */
-native Gamma_SetBehaviourValue(Behaviour:behaviour, const String:property[], any:value);
-
-/**
- *	Sets a property in the behaviour
- *
- *	@param behaviour		Behaviour reference
- *	@param property			Key to the property
- *	@param array			Array to store in the property
- *	@param num_items		Number of items in the array
- *	@noreturn
- */
-native Gamma_SetBehaviourArray(Behaviour:behaviour, const String:property[], any:array[], num_items);
-
-/**
- *	Sets a property in the behaviour
- *
- *	@param behaviour		Behaviour reference
- *	@param property			Key to the property
- *	@param value			String to store in the property
- *	@noreturn
- */
-native Gamma_SetBehaviourString(Behaviour:behaviour, const String:property[], const String:value[]);
-
-/**
- *	Gets a property on the behaviour
- *
- *	@param behaviour		Behaviour reference
- *	@param property			Key to the property
- *	@param value			Variable to store value
- *	@return					True on success, false if the the property is not set or is not set as a value
- */
-native bool:Gamma_GetBehaviourValue(Behaviour:behaviour, const String:property[], &any:value);
-
-/**
- *	Gets a property on the behaviour
- *
- *	@param behaviour		Behaviour reference
- *	@param property			Key to the property
- *	@param array			Buffer to store array
- *	@param max_size			Maximum size of the array
- *	@param written			Optional parameter to store the number of elements written to the buffer
- *	@return					True on success, false if the the property is not set or is not set as an array
- */
-native bool:Gamma_GetBehaviourArray(Behaviour:behaviour, const String:property[], any:array[], max_size, &written=0);
-
-/**
- *	Gets a property on the behaviour
- *
- *	@param behaviour		Behaviour reference
- *	@param property			Key to the property
- *	@param value			Buffer to store string
- *	@param max_size			Maximum size of the string
- *	@param written			Optional parameter to store the number of elements written to the buffer
- *	@return					True on success, false if the the property is not set or is not set as a string
- */
-native bool:Gamma_GetBehaviourString(Behaviour:behaviour, const String:property[], String:value[], max_size, &written=0);
-
-
-
-
-
 /*******************************************************************************
  *	STOCKS				
  *******************************************************************************/
@@ -755,6 +617,7 @@ public __pl_gamma_SetNTVOptional()
 	MarkNativeAsOptional("Gamma_FindBehaviourType");
 	MarkNativeAsOptional("Gamma_GetBehaviourTypeName");
 	MarkNativeAsOptional("Gamma_AddBehaviourTypeRequirement");
+	MarkNativeAsOptional("Gamma_BehaviourTypeOwnsBehaviour");
 	MarkNativeAsOptional("Gamma_GetBehaviourTypeBehaviours");
 	MarkNativeAsOptional("Gamma_BehaviourTypeHasBehaviours");
 	MarkNativeAsOptional("Gamma_GetRandomBehaviour");
