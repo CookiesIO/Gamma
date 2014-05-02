@@ -97,7 +97,7 @@ stock AddBehaviourTypeTargetFilter(BehaviourType:behaviourType)
 		if (g_eTargetFilterVerbosity == TargetFilterVerbosity_BehaviourTypesAndBehaviours)
 		{
 			new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
-			DECREASING_LOOP(i,behaviours)
+			DECREASING_LOOP(i,GetArraySize(behaviours))
 			{
 				new Behaviour:behaviour = GetArrayBehaviour(behaviours, i);
 				AddBehaviourTargetFilter(behaviour);
@@ -130,7 +130,7 @@ stock RemoveBehaviourTypeTargetFilter(BehaviourType:behaviourType)
 		if (g_eTargetFilterVerbosity == TargetFilterVerbosity_BehaviourTypesAndBehaviours)
 		{
 			new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
-			DECREASING_LOOP(i,behaviours)
+			DECREASING_LOOP(i,GetArraySize(behaviours))
 			{
 				new Behaviour:behaviour = GetArrayBehaviour(behaviours, i);
 				RemoveBehaviourTargetFilter(behaviour);
@@ -209,7 +209,7 @@ public Native_Gamma_CreateBehaviourType(Handle:plugin, numParams)
 		}
 		case BehaviourTypeCreationError_GameModeNotInCreation:
 		{
-			return ThrowNativeError(SP_ERROR_NATIVE, "Cannot call Gamma_CreateBehaviourType outside Gamma_OnCreateGameMode");
+			return ThrowNativeError(SP_ERROR_NATIVE, "Cannot call Gamma_CreateBehaviourType outside of Gamma_OnCreateGameMode");
 		}
 	}
 
@@ -416,7 +416,7 @@ stock bool:AddBehaviourTypeRequirement(BehaviourType:behaviourType, const String
 }
 
 // Checks if a plugin meets the requirements to be a behaviour of this type
-stock bool:BehaviourTypePluginCheck(BehaviourType:behaviourType, Handle:plugin)
+stock bool:BehaviourTypeCheck(BehaviourType:behaviourType, Behaviour:behaviour)
 {
 	#if defined DEBUG || defined DEBUG_LOG
 
@@ -432,14 +432,14 @@ stock bool:BehaviourTypePluginCheck(BehaviourType:behaviourType, Handle:plugin)
 	for (new i = 0; i < count; i++)
 	{
 		GetArrayString(requirements, i, functionName, sizeof(functionName));
-		if (GetFunctionByName(plugin, functionName) == INVALID_FUNCTION)
+		if (GetFunctionInBehaviour(behaviour, functionName) == INVALID_FUNCTION)
 		{
-			DEBUG_PRINT3("Gamma:BehaviourTypePluginCheck(\"%s\", %X) : No match (%s)", behaviourTypeName, plugin, functionName);
+			DEBUG_PRINT3("Gamma:BehaviourTypePluginCheck(\"%s\", %X) : No match (%s)", behaviourTypeName, behaviour, functionName);
 			return false;
 		}
 	}
 
-	DEBUG_PRINT2("Gamma:BehaviourTypePluginCheck(\"%s\", %X) : Match", behaviourTypeName, plugin);
+	DEBUG_PRINT2("Gamma:BehaviourTypePluginCheck(\"%s\", %X) : Match", behaviourTypeName, behaviour);
 	return true;
 }
 
@@ -514,7 +514,7 @@ stock DestroyBehaviourType(BehaviourType:behaviourType)
 	// Destroy all child behaviours
 	DEBUG_PRINT1("Gamma:DestroyBehaviourType(\"%s\") : Destroy Behaviours", behaviourTypeName);
 	new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
-	DECREASING_LOOP(i,behaviours)
+	DECREASING_LOOP(i,GetArraySize(behaviours))
 	{
 		new Behaviour:behaviour = GetArrayBehaviour(behaviours, i);
 		DestroyBehaviour(behaviour);

@@ -104,9 +104,15 @@ stock GameMode_OnAllPluginsLoaded()
 	g_hGlobal_OnGameModeEnded = CreateGlobalForward("Gamma_OnGameModeEnded", ET_Ignore, Param_Cell, Param_Cell);
 }
 
-stock Handle:GetAllGameModes()
+stock GameMode_PluginUnloading(Handle:plugin)
 {
-	return g_hArrayGameModes;
+	// Since only a single game mode can be created by 1 plugin, find it
+	new GameMode:gameMode = FindGameModeByPlugin(plugin);
+	if (gameMode != INVALID_GAME_MODE)
+	{
+		// And destroy it
+		DestroyGameMode(gameMode);
+	}
 }
 
 stock GetGameModeCount()
@@ -219,6 +225,7 @@ stock ChooseAndStartGameMode()
 
 		new Handle:pluginIter = GetPluginIterator();
 		new Handle:newKnownPlugins = CreateArray();
+		new Handle:knownGameModes = CloneArray(g_hArrayGameModes);
 
 		if (g_hArrayKnownPlugins == INVALID_HANDLE)
 		{
@@ -228,7 +235,7 @@ stock ChooseAndStartGameMode()
 			while (MorePlugins(pluginIter))
 			{
 				new Handle:plugin = ReadPlugin(pluginIter);
-				DetectedPlugin(plugin);
+				DetectedPlugin(plugin, knownGameModes);
 				PushArrayCell(newKnownPlugins, plugin);
 			}
 		}
@@ -242,7 +249,7 @@ stock ChooseAndStartGameMode()
 				new Handle:plugin = ReadPlugin(pluginIter);
 				if (FindValueInArray(g_hArrayKnownPlugins, plugin) == -1)
 				{
-					DetectedPlugin(plugin);
+					DetectedPlugin(plugin, knownGameModes);
 				}
 				PushArrayCell(newKnownPlugins, plugin);
 			}
@@ -251,6 +258,7 @@ stock ChooseAndStartGameMode()
 
 		g_hArrayKnownPlugins = newKnownPlugins;
 		CloseHandle(pluginIter);
+		CloseHandle(knownGameModes);
 
 
 		DEBUG_PRINT0("Gamma:ChooseAndStartGameMode() : Auto finding plugins - Ended");
@@ -289,19 +297,16 @@ stock ChooseAndStartGameMode()
 	}
 }
 
-stock DetectedPlugin(Handle:plugin)
+stock DetectedPlugin(Handle:plugin, Handle:knownGameModes)
 {
 	SimpleOptionalPluginCall(plugin, "Gamma_PluginDetected");
-	DECREASING_LOOP(i,g_hArrayGameModes)
+	DECREASING_LOOP(i,GetArraySize(knownGameModes))
 	{
 		// Uhh, just to be safe, lets see if the behaviour hasn't already created it's behaviour
 		// for the game mode we're about to signal has been created
-		new GameMode:gameMode = GetArrayGameMode(g_hArrayGameModes, i);
-		new Behaviour:behaviour = FindBehaviourInGameModeByPlugin(gameMode, plugin);
+		new GameMode:gameMode = GetArrayGameMode(knownGameModes, i);
 
-		DEBUG_PRINT2("Gamma:DetectedPlugin(%X) : Behaviour (%X)",plugin,behaviour);
-
-		if (behaviour == INVALID_BEHAVIOUR && GetGameModePlugin(gameMode) != plugin)
+		if (GetGameModePlugin(gameMode) != plugin)
 		{
 			DEBUG_PRINT1("Gamma:DetectedPlugin(%X) : Calling Gamma_OnGameModeCreated",plugin);
 			SimpleOptionalPluginCallOneParam(plugin, "Gamma_OnGameModeCreated", gameMode);
@@ -372,7 +377,7 @@ stock AddTargetFilters(GameMode:gameMode)
 	if (g_eTargetFilterVerbosity != TargetFilterVerbosity_None)
 	{
 		new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
-		DECREASING_LOOP(i,behaviourTypes)
+		DECREASING_LOOP(i,GetArraySize(behaviourTypes))
 		{
 			new BehaviourType:behaviourType = GetArrayBehaviourType(behaviourTypes, i);
 			AddBehaviourTypeTargetFilter(behaviourType);
@@ -385,7 +390,7 @@ stock RemoveTargetFilters(GameMode:gameMode)
 	if (g_eTargetFilterVerbosity != TargetFilterVerbosity_None)
 	{
 		new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
-		DECREASING_LOOP(i,behaviourTypes)
+		DECREASING_LOOP(i,GetArraySize(behaviourTypes))
 		{
 			new BehaviourType:behaviourType = GetArrayBehaviourType(behaviourTypes, i);
 			RemoveBehaviourTypeTargetFilter(behaviourType);
@@ -506,6 +511,7 @@ stock GameMode:CreateGameMode(Handle:plugin, const String:name[], &GameModeCreat
 	// Validate behaviour name
 	if (!ValidateName(name))
 	{
+		DEBUG_PRINT0("Gamma:CreateGameMode() : Invalid name");
 		error = GameModeCreationError_InvalidName;
 		return INVALID_GAME_MODE;
 	}
@@ -513,6 +519,7 @@ stock GameMode:CreateGameMode(Handle:plugin, const String:name[], &GameModeCreat
 	// Has the plugin has already registered a game mode?
 	if (FindGameModeByPlugin(plugin) != INVALID_GAME_MODE)
 	{
+		DEBUG_PRINT0("Gamma:CreateGameMode() : Plugin already has a game mode");
 		error = GameModeCreationError_PluginAlreadyHasGameMode;
 		return INVALID_GAME_MODE;
 	}
@@ -520,6 +527,7 @@ stock GameMode:CreateGameMode(Handle:plugin, const String:name[], &GameModeCreat
 	// Does another existing game mode with this name?
 	if (FindGameMode(name) != INVALID_GAME_MODE)
 	{
+		DEBUG_PRINT0("Gamma:CreateGameMode() : Game mode already exists");
 		error = GameModeCreationError_AlreadyExists;
 		return INVALID_GAME_MODE;
 	}
@@ -541,13 +549,14 @@ stock GameMode:CreateGameMode(Handle:plugin, const String:name[], &GameModeCreat
 	g_hGameModeInitializingPlugin = plugin;
 	g_bGameModeInitializationFailed = false;
 
-	SimpleOptionalPluginCall(plugin, "Gamma_OnCreateGameMode");
+	new onCreateError;
+	SimpleOptionalPluginCall(plugin, "Gamma_OnCreateGameMode", _, onCreateError);
 
 	g_hGameModeInitializing = INVALID_GAME_MODE;
 	g_hGameModeInitializingPlugin = INVALID_HANDLE;
-	if (g_bGameModeInitializationFailed)
+	if (g_bGameModeInitializationFailed || onCreateError != SP_ERROR_NONE)
 	{
-		DEBUG_PRINT2("Gamma:CreateGameMode(%X, \"%s\") : Initializing failed", plugin, name);
+		DEBUG_PRINT0("Gamma:CreateGameMode() : Initializing failed");
 
 		// Creation failed, don't forget to destroy the game mode
 		error = GameModeCreationError_CreationFailed;
@@ -555,7 +564,7 @@ stock GameMode:CreateGameMode(Handle:plugin, const String:name[], &GameModeCreat
 		return INVALID_GAME_MODE;
 	}
 
-	DEBUG_PRINT2("Gamma:CreateGameMode(%X, \"%s\") : Initializing success", plugin, name);
+	DEBUG_PRINT0("Gamma:CreateGameMode() : Initializing success");
 
 	// Finally notify other plugins about it's creation
 	SimpleForwardCallOneParam(g_hGlobal_OnGameModeCreated, gameMode);
@@ -661,7 +670,7 @@ stock DestroyGameMode(GameMode:gameMode)
 	// Destroy all associated behaviour types
 	DEBUG_PRINT1("Gamma:DestroyGameMode(\"%s\") : Destroy Behaviour Types", name);
 	new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
-	DECREASING_LOOP(i,behaviourTypes)
+	DECREASING_LOOP(i,GetArraySize(behaviourTypes))
 	{
 		new BehaviourType:behaviourType = GetArrayBehaviourType(behaviourTypes, i);
 		DestroyBehaviourType(behaviourType);

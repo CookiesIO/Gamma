@@ -76,6 +76,14 @@ enum BehaviourReleaseReason
  *******************************************************************************/
 
 /**
+ *	Called when Gamma runs it auto detection during round start, if it's the first time it sees the plugin
+ *	This is inteded to be used for creation of game modes
+ *
+ *	@noreturn
+ */
+forward Gamma_PluginDetected();
+
+/**
  *	Returns an ADT array with all game modes
  *
  *	@return		ADT array with all game modes
@@ -90,62 +98,11 @@ native Handle:Gamma_GetAllGameModes();
  */
 native GameMode:Gamma_GetCurrentGameMode();
 
-/**
- *	Called when Gamma runs it auto detection during round start, if it's the first time it sees the plugin
- *	This is inteded to be used for creation of game modes
- *
- *	@noreturn
- */
-forward Gamma_PluginDetected();
-
 
 
 /*******************************************************************************
  *	GAME MODES 					
  *******************************************************************************/
-
-/**
- *	Registers the current plugin as a game mode in the game mode manager, only one game mode can be registered per plugin
- *
- *	@param name		Name of the game mode
- *	@return			GameMode reference
- *	@error			Game mode with same name exists, plugin has already registered a game mode or creation failed
- */
-native GameMode:Gamma_RegisterGameMode(const String:name[]);
-
-/**
- *	Finds a game mode by name
- *
- *	@param name		Name of the game mode to search for
- *	@return			GameMode reference or INVALID_GAME_MODE if not found
- */
-native GameMode:Gamma_FindGameMode(const String:name[]);
-
-/**
- *	Gets the name of a game mode
- *
- *	@param gameMode		Game mode to get the name from
- *	@param buffer		Buffer to store game mode name in
- *	@param maxlen		Maximum size of the buffer
- */
-native Gamma_GetGameModeName(GameMode:gameMode, String:buffer[], maxlen);
-
-/**
- *	Returns an ADT array with all behaviour types for a game mode
- *
- *	@param gameMode		Game mode to get all behaviour types from
- *	@return 			ADT array with all behaviour types in the game mode
- *	@note				Must be closed with CloseHandle!
- */
-native Handle:Gamma_GetGameModeBehaviourTypes(GameMode:gameMode);
-
-/**
- *	Forces the game mode to end
- *	Can only be called by the currently active game mode
- *
- *	@noreturn
- */
-native Gamma_ForceStopGameMode();
 
 /**
  *	Called on the game mode when its being registered
@@ -168,6 +125,7 @@ forward Gamma_OnDestroyGameMode();
 /**
  *	Called when a game mode is registered and created
  *	This forward can lie, it can also be called right after PluginDetected
+ *	for all game modes created before detection
  *
  *	@noreturn
  */
@@ -217,6 +175,48 @@ forward Gamma_OnGameModeStarted(GameMode:gameMode);
  */
 forward Gamma_OnGameModeEnded(GameMode:gameMode, GameModeEndReason:reason);
 
+/**
+ *	Registers the current plugin as a game mode in the game mode manager, only one game mode can be registered per plugin
+ *
+ *	@param name		Name of the game mode
+ *	@return			GameMode reference
+ *	@error			Game mode with same name exists, plugin has already registered a game mode or creation failed
+ */
+native GameMode:Gamma_RegisterGameMode(const String:name[]);
+
+/**
+ *	Finds a game mode by name
+ *
+ *	@param name		Name of the game mode to search for
+ *	@return			GameMode reference or INVALID_GAME_MODE if not found
+ */
+native GameMode:Gamma_FindGameMode(const String:name[]);
+
+/**
+ *	Gets the name of a game mode
+ *
+ *	@param gameMode		Game mode to get the name from
+ *	@param buffer		Buffer to store game mode name in
+ *	@param maxlen		Maximum size of the buffer
+ */
+native Gamma_GetGameModeName(GameMode:gameMode, String:buffer[], maxlen);
+
+/**
+ *	Returns an ADT array with all behaviour types for a game mode
+ *
+ *	@param gameMode		Game mode to get all behaviour types from
+ *	@return 			ADT array with all behaviour types in the game mode
+ *	@note				Must be closed with CloseHandle!
+ */
+native Handle:Gamma_GetGameModeBehaviourTypes(GameMode:gameMode);
+
+/**
+ *	Forces the game mode to end
+ *	Can only be called by the currently active game mode
+ *
+ *	@noreturn
+ */
+native Gamma_ForceStopGameMode();
 
 
 
@@ -302,16 +302,172 @@ native Behaviour:Gamma_GetRandomBehaviour(BehaviourType:behaviourType);
  *******************************************************************************/
 
 /**
+ *	Sets a function override, only works for forwards called/referred to using
+ *	Gamma_BehaviourHasFunction, Gamma_AddBehaviourFunctionToForward
+ *	Gamma_RemoveBehaviourFunctionFromForward and Gamma_SimpleBehaviourFunctionCall
+ *	Can only be called in Gamma_OnCreateBehaviour
+ *
+ *	@param functionName	Name of the function to override
+ *	@param behaviour	Function to point to instead
+ *	@return				True if the function was found, false otherwise
+ *	@error				Not in Gamma_OnCreateBehaviour
+ */
+native Gamma_SetBehaviourFunctionOverride(const String:functionName[], Function:function);
+
+/**
+ *	Called on the game mode when its being registered
+ *	This can be used for initializing things that should only be available 
+ *	after the game mode is registered in the game mode manager
+ *
+ *	@noreturn
+ */
+forward Gamma_OnCreateBehaviour();
+functag public Gamma_OnCreateBehaviourTag();
+
+
+/**
+ *	Called on the game mode when it's being destroyed
+ *	Use this is release things that are no longer needed when it's not
+ *	registered in the game mode manager anymore
+ *
+ *	@noreturn
+ */
+forward Gamma_OnDestroyBehaviour();
+functag public Gamma_OnDestroyBehaviourTag();
+
+/**
+ *	Called when a game mode is registered and created
+ *	This forward can lie, it can also be called right after PluginDetected
+ *	for all behaviours created before detection
+ *
+ *	@param behaviour	Behaviour just created
+ *	@noreturn
+ */
+forward Gamma_OnBehaviourCreated(Behaviour:behaviour);
+/**
+ *	Called when a game mode just before a game mode is wholely destroyed
+ *
+ *	@param behaviour	Behaviour just destroyed
+ *	@noreturn
+ */
+forward Gamma_OnBehaviourDestroyed(Behaviour:behaviour);
+
+/**
+ *	Called on the owning behaviour when it's given to a client
+ *
+ *	@param client		Client the behaviour was given to
+ *	@noreturn
+ */
+forward Gamma_OnBehaviourPossessingClient(client);
+functag public Gamma_OnBehaviourPossessingClientTag(client);
+
+/**
+ *	Called on the owning behaviour when it's taken from a client
+ *
+ *	@param client		Client the behaviour was taken from
+ *	@param reason		Reason the client was released
+ *	@noreturn
+ */
+forward Gamma_OnBehaviourReleasingClient(client, BehaviourReleaseReason:reason);
+functag public Gamma_OnBehaviourReleasingClientTag(client, BehaviourReleaseReason:reason);
+
+/**
+ *	Called after a client has been given a behaviour
+ *
+ *	@param client		Client the behaviour was given to
+ *	@param behaviour	Behaviour that was given
+ *	@noreturn
+ */
+forward Gamma_OnBehaviourPossessedClient(client, Behaviour:behaviour);
+
+/**
+ *	Called after a client has lost a behaviour
+ *
+ *	@param client		Client the behaviour was given to
+ *	@param behaviour	Behaviour that was given
+ *	@param reason		Reason the client was released
+ *	@noreturn
+ */
+forward Gamma_OnBehaviourReleasedClient(client, Behaviour:behaviour, BehaviourReleaseReason:reason);
+
+/**
+ *	Called on a behaviour when a clients movement buttons are being processed, if the client owns the behaviour
+ *
+ *	@param client		Index of the client.
+ *	@param buttons		Copyback buffer containing the current commands (as bitflags - see entity_prop_stocks.inc).
+ *	@param impulse		Copyback buffer containing the current impulse command.
+ *	@param vel			Players desired velocity.
+ *	@param angles		Players desired view angles.
+ *	@param weapon		Entity index of the new weapon if player switches weapon, 0 otherwise.
+ *	@param subtype		Weapon subtype when selected from a menu.
+ *	@param cmdnum		Command number. Increments from the first command sent.
+ *	@param tickcount	Tick count. A client's prediction based on the server's GetGameTickCount value.
+ *	@param seed			Random seed. Used to determine weapon recoil, spread, and other predicted elements.
+ *	@param mouse		Mouse direction (x, y).
+ *
+ *	@return 			Plugin_Handled to block the commands from being processed, Plugin_Continue otherwise.
+ *
+ *	@note				To see if all 11 params are avaliable, use FeatureType_Capability and
+ *						FEATURECAP_PLAYERRUNCMD_11PARAMS.
+ */
+forward Action:Gamma_OnBehaviourPlayerRunCmd(client, &buttons, &impulse, Float:vel[3], Float:angles[3], &weapon, &subtype, &cmdnum, &tickcount, &seed, mouse[2]);
+functag public Action:Gamma_OnBehaviourPlayerRunCmdTag(client, &buttons, &impulse, Float:vel[3], Float:angles[3], &weapon, &subtype, &cmdnum, &tickcount, &seed, mouse[2]);
+
+// So we have FEATURECAP_PLAYERRUNCMD_11PARAMS
+#include <sdktools_hooks>
+
+/**
+ *	Sets OnBehaviourPossessingClient override
+ *
+ *	@param onPossessingClient	Function to use instead of the forward Gamma_OnBehaviourPossessingClient
+ */
+stock Gamma_SetBehaviourPossessingClientOverride(Gamma_OnBehaviourPossessingClientTag:onPossessingClient)
+{
+	Gamma_SetBehaviourFunctionOverride("Gamma_OnBehaviourPossessingClient", onPossessingClient);
+}
+
+/**
+ *	Sets OnBehaviourReleasingClient override
+ *
+ *	@param onReleasingClient	Function to use instead of the forward Gamma_OnBehaviourReleasingClient
+ */
+stock Gamma_SetBehaviourReleasingClientOverride(Gamma_OnBehaviourPossessingClientTag:onReleasingClient)
+{
+	Gamma_SetBehaviourFunctionOverride("Gamma_OnBehaviourReleasingClient", onReleasingClient);
+}
+
+/**
+ *	Sets OnBehaviourPlayerRunCmd override
+ *
+ *	@param onBehaviourRunCmd	Function to use instead of the forward Gamma_OnBehaviourPlayerRunCmd
+ */
+stock Gamma_SetBehaviourPlayerRunCmdOverride(Gamma_OnBehaviourPlayerRunCmdTag:onBehaviourRunCmd)
+{
+	Gamma_SetBehaviourFunctionOverride("Gamma_OnBehaviourPlayerRunCmd", onBehaviourRunCmd);
+}
+
+/**
+ *	Sets OnDestroyBehaviour override
+ *
+ *	@param onDestroyBehaviour	Function to use instead of the forward Gamma_OnDestroyBehaviour
+ */
+stock Gamma_SetDestroyBehaviourOverride(Gamma_OnDestroyBehaviourTag:onDestroyBehaviour)
+{
+	Gamma_SetBehaviourFunctionOverride("Gamma_OnDestroyBehaviour", onDestroyBehaviour);
+}
+
+/**
  *	Registers the current plugin as a behaviour of behaviourType
  *	Behaviours aren't allowed to used within any context, so a behaviour type must always be specified
  *	While it's possible to have the same Behaviour in different game modes, it's recommended to have only one per plugin unless they do exactly the same
  *
- *	@param behaviourType	Behaviour type to "implement"
- *	@param behaviourName	Name of the registered behaviour
- *	@return					Behaviour identifier
- *	@error					Behaviour with same name exists or plugin has already registered a behaviour for same game mode
+ *	@param behaviourType		Behaviour type to "implement"
+ *	@param behaviourName		Name of the registered behaviour
+ *	@param onCreateBehaviour	Optional override function for Gamma_OnCreateBehaviour
+ *	@return						Behaviour identifier
+ *	@error						Behaviour with same name exists
  */
-native Behaviour:Gamma_RegisterBehaviour(BehaviourType:behaviourType, const String:behaviourName[]);
+native Behaviour:Gamma_RegisterBehaviour(BehaviourType:behaviourType, const String:behaviourName[], Gamma_OnCreateBehaviourTag:onCreateBehaviour=INVALID_FUNCTION);
 
 /**
  *	Gets the behaviour type of a behaviour
@@ -357,7 +513,7 @@ native Handle:Gamma_GetPossessedPlayers(Behaviour:behaviour);
  *	@param functionName	Name of the function to check exists
  *	@return				True if the function was found, false otherwise
  */
-native bool:Gamma_BehaviourHasFunction(Behaviour:behaviour, String:functionName[]);
+native bool:Gamma_BehaviourHasFunction(Behaviour:behaviour, const String:functionName[]);
 
 /**
  *	Adds a function in the behaviour to the forward, if it exists
@@ -390,68 +546,6 @@ native bool:Gamma_RemoveBehaviourFunctionFromForward(Behaviour:behaviour, const 
  *	@return					Return value of the function or default return value
  */
 native Gamma_SimpleBehaviourFunctionCall(Behaviour:behaviour, const String:functionName[], any:defaultValue=0, any:...);
-
-/**
- *	Called on the owning behaviour when it's given to a client
- *
- *	@param client		Client the behaviour was given to
- *	@noreturn
- */
-forward Gamma_OnBehaviourPossessingClient(client);
-
-/**
- *	Called on the owning behaviour when it's taken from a client
- *
- *	@param client		Client the behaviour was taken from
- *	@param reason		Reason the client was released
- *	@noreturn
- */
-forward Gamma_OnBehaviourReleasingClient(client, BehaviourReleaseReason:reason);
-
-/**
- *	Called after a client has been given a behaviour
- *
- *	@param client		Client the behaviour was given to
- *	@param behaviour	Behaviour that was given
- *	@noreturn
- */
-forward Gamma_OnBehaviourPossessedClient(client, Behaviour:behaviour);
-
-/**
- *	Called after a client has lost a behaviour
- *
- *	@param client		Client the behaviour was given to
- *	@param behaviour	Behaviour that was given
- *	@param reason		Reason the client was released
- *	@noreturn
- */
-forward Gamma_OnBehaviourReleasedClient(client, Behaviour:behaviour, BehaviourReleaseReason:reason);
-
-/**
- *	Called on a behaviour when a clients movement buttons are being processed, if the client owns the behaviour
- *
- *	@param client		Index of the client.
- *	@param buttons		Copyback buffer containing the current commands (as bitflags - see entity_prop_stocks.inc).
- *	@param impulse		Copyback buffer containing the current impulse command.
- *	@param vel			Players desired velocity.
- *	@param angles		Players desired view angles.
- *	@param weapon		Entity index of the new weapon if player switches weapon, 0 otherwise.
- *	@param subtype		Weapon subtype when selected from a menu.
- *	@param cmdnum		Command number. Increments from the first command sent.
- *	@param tickcount	Tick count. A client's prediction based on the server's GetGameTickCount value.
- *	@param seed			Random seed. Used to determine weapon recoil, spread, and other predicted elements.
- *	@param mouse		Mouse direction (x, y).
- *
- *	@return 			Plugin_Handled to block the commands from being processed, Plugin_Continue otherwise.
- *
- *	@note				To see if all 11 params are avaliable, use FeatureType_Capability and
- *						FEATURECAP_PLAYERRUNCMD_11PARAMS.
- */
-forward Action:Gamma_OnBehaviourPlayerRunCmd(client, &buttons, &impulse, Float:vel[3], Float:angles[3], &weapon, &subtype, &cmdnum, &tickcount, &seed, mouse[2]);
-
-// So we have FEATURECAP_PLAYERRUNCMD_11PARAMS
-#include <sdktools_hooks>
-
 
 
 
@@ -632,6 +726,7 @@ public __pl_gamma_SetNTVOptional()
 	MarkNativeAsOptional("Gamma_AddBehaviourFunctionToForward");
 	MarkNativeAsOptional("Gamma_RemoveBehaviourFunctionFromForward");
 	MarkNativeAsOptional("Gamma_SimpleBehaviourFunctionCall");
+	MarkNativeAsOptional("Gamma_SetBehaviourFunctionOverride");
 
 	// Client natives
 	MarkNativeAsOptional("Gamma_GiveBehaviour");

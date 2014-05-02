@@ -75,7 +75,7 @@ public Plugin:myinfo =
 
 // Decreasing loop macro (using decreasing loops a lot, likely to make a mistake (forgetting -1))
 // Usage: DECREASING_LOOP(indexer,adtarray)
-#define DECREASING_LOOP(%1,%2) for (new %1 = GetArraySize(%2)-1; %1 >= 0; %1--)
+#define DECREASING_LOOP(%1,%2) for (new %1 = %2-1; %1 >= 0; %1--)
 
 
 // The almight important DEBUG_PRINTx's
@@ -252,7 +252,7 @@ public OnPluginEnd()
 	// Destroy all game modes when the plugin ends,
 	// cleans up all plugins tied to them as well,
 	// so no need to destroy behaviours manually
-	DECREASING_LOOP(i,GetAllGameModes())
+	DECREASING_LOOP(i,GetGameModeCount())
 	{
 		new GameMode:gameMode = GetGameMode(i);
 		DestroyGameMode(gameMode);
@@ -450,27 +450,12 @@ public Native__GAMMA_PluginUnloading(Handle:plugin, numParams)
 {
 	DEBUG_PRINT0("native __GAMMA_PluginUnloading() : Start");
 
-	// Since only a single game mode can be created by 1 plugin, find it
-	new GameMode:gameMode = FindGameModeByPlugin(plugin);
-	if (gameMode != INVALID_GAME_MODE)
-	{
-		// And destroy it
-		DestroyGameMode(gameMode);
-	}
+	GameMode_PluginUnloading(Handle:plugin);
 
 	// It's not neccesary to look through BehaviourTypes since they're created by the game mode plugin
 	// And will be destroyed when the game mode gets destroyed
 
-	// Look through all behaviours and destroy if the behaviour is created by the plugin
-	new Handle:allBehaviours = GetAllBehaviours();
-	DECREASING_LOOP(i,allBehaviours)
-	{
-		new Behaviour:behaviour = GetArrayBehaviour(allBehaviours, i);
-		if (GetBehaviourPlugin(behaviour) == plugin)
-		{
-			DestroyBehaviour(behaviour);
-		}
-	}
+	Behaviour_PluginUnloading(Handle:plugin);
 
 	DEBUG_PRINT0("native __GAMMA_PluginUnloading() : End");
 }
