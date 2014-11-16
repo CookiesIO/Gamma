@@ -74,24 +74,15 @@ public Plugin:myinfo =
 #define SYMBOL_MAX_LENGTH 64
 
 // Decreasing loop macro (using decreasing loops a lot, likely to make a mistake (forgetting -1))
-// Usage: DECREASING_LOOP(indexer,adtarray)
+// Usage: DECREASING_LOOP(indexer,size)
 #define DECREASING_LOOP(%1,%2) for (new %1 = %2-1; %1 >= 0; %1--)
 
 
 // The almight important DEBUG_PRINTx's
-#define DEBUG
-//#define DEBUG_LOG
+// set DEBUG to 1 for PrintToServer, 2 for LogMessageEx or 0 for no debug messages
+#define DEBUG 1
 
-#if defined DEBUG
-#if defined DEBUG_LOG
-#define DEBUG_PRINT0(%1) PrintToServer(%1); LogMessageEx(%1)
-#define DEBUG_PRINT1(%1,%2) PrintToServer(%1,%2); LogMessageEx(%1,%2)
-#define DEBUG_PRINT2(%1,%2,%3) PrintToServer(%1,%2,%3); LogMessageEx(%1,%2,%3)
-#define DEBUG_PRINT3(%1,%2,%3,%4) PrintToServer(%1,%2,%3,%4); LogMessageEx(%1,%2,%3,%4)
-#define DEBUG_PRINT4(%1,%2,%3,%4,%5) PrintToServer(%1,%2,%3,%4,%5); LogMessageEx(%1,%2,%3,%4,%5)
-#define DEBUG_PRINT5(%1,%2,%3,%4,%5,%6) PrintToServer(%1,%2,%3,%4,%5,%6); LogMessageEx(%1,%2,%3,%4,%5,%6)
-#define DEBUG_PRINT6(%1,%2,%3,%4,%5,%6,%7) PrintToServer(%1,%2,%3,%4,%5,%6,%7); LogMessageEx(%1,%2,%3,%4,%5,%6,%7)
-#else // defined DEBUG_LOG
+#if defined DEBUG && DEBUG == 1
 #define DEBUG_PRINT0(%1) PrintToServer(%1)
 #define DEBUG_PRINT1(%1,%2) PrintToServer(%1,%2)
 #define DEBUG_PRINT2(%1,%2,%3) PrintToServer(%1,%2,%3)
@@ -99,9 +90,7 @@ public Plugin:myinfo =
 #define DEBUG_PRINT4(%1,%2,%3,%4,%5) PrintToServer(%1,%2,%3,%4,%5)
 #define DEBUG_PRINT5(%1,%2,%3,%4,%5,%6) PrintToServer(%1,%2,%3,%4,%5,%6)
 #define DEBUG_PRINT6(%1,%2,%3,%4,%5,%6,%7) PrintToServer(%1,%2,%3,%4,%5,%6,%7)
-#endif // defined DEBUG_LOG
-#else // defined DEBUG
-#if defined DEBUG_LOG
+#elseif defined DEBUG && DEBUG == 2
 #define DEBUG_PRINT0(%1) LogMessageEx(%1)
 #define DEBUG_PRINT1(%1,%2) LogMessageEx(%1,%2)
 #define DEBUG_PRINT2(%1,%2,%3) LogMessageEx(%1,%2,%3)
@@ -117,8 +106,7 @@ public Plugin:myinfo =
 #define DEBUG_PRINT4(%1,%2,%3,%4,%5)
 #define DEBUG_PRINT5(%1,%2,%3,%4,%5,%6)
 #define DEBUG_PRINT6(%1,%2,%3,%4,%5,%6,%7)
-#endif // defined DEBUG_LOG
-#endif // defined DEBUG
+#endif
 
 // Verbosity of the added target filters
 enum TargetFilterVerbosity
@@ -176,6 +164,7 @@ new bool:g_bDHooksAvailable;
  #include "gamma/game-mode.sp"
  #include "gamma/behaviour-type.sp"
  #include "gamma/behaviour.sp"
+ #include "gamma/iterators.sp"
 
 
 /*******************************************************************************
@@ -187,6 +176,7 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 	RegisterGameModeNatives();
 	RegisterBehaviourTypeNatives();
 	RegisterBehaviourNatives();
+	RegisterIteratorNatives();
 
 	// Special natives
 	CreateNative("__GAMMA_PluginUnloading", Native__GAMMA_PluginUnloading);

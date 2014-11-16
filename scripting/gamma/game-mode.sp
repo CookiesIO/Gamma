@@ -57,7 +57,6 @@ static Handle:g_hCurrentGameModePlugin;	// Active game mode's plugin
 // Game mode creation variables
 static GameMode:g_hGameModeInitializing;
 static Handle:g_hGameModeInitializingPlugin;
-static bool:g_bGameModeInitializationFailed;
 
 
 
@@ -68,14 +67,14 @@ static bool:g_bGameModeInitializationFailed;
 stock RegisterGameModeNatives()
 {
 	// Misc natives
-	CreateNative("Gamma_GetAllGameModes", Native_Gamma_GetAllGameModes);
+	CreateNative("Gamma_GetGameModeIterator", Native_Gamma_GetGameModeIterator);
 	CreateNative("Gamma_GetCurrentGameMode", Native_Gamma_GetCurrentGameMode);
 
 	// Game mode natives
 	CreateNative("Gamma_RegisterGameMode", Native_Gamma_RegisterGameMode);
 	CreateNative("Gamma_FindGameMode", Native_Gamma_FindGameMode);
 	CreateNative("Gamma_GetGameModeName", Native_Gamma_GetGameModeName);
-	CreateNative("Gamma_GetGameModeBehaviourTypes", Native_Gamma_GetGameModeBehaviourTypes);
+	CreateNative("Gamma_GetGameModeBehaviourTypeIterator", Native_Gamma_GetGameModeBehaviourTypeIterator);
 	CreateNative("Gamma_ForceStopGameMode", Native_Gamma_ForceStopGameMode);
 }
 
@@ -86,7 +85,6 @@ stock GameMode_OnPluginStart()
 	g_hTrieGameModes = CreateTrie();
 
 	// Game mode creation variables
-	g_bGameModeInitializationFailed = false;
 	g_hGameModeInitializing = INVALID_GAME_MODE;
 	g_hGameModeInitializingPlugin = INVALID_HANDLE;
 
@@ -150,16 +148,6 @@ stock Handle:GetInitializingGameModePlugin()
 	return g_hGameModeInitializingPlugin;
 }
 
-stock FailGameModeInitialization()
-{
-	if (!IsInitializingGameMode())
-	{
-		ThrowError("Can't fail game mode initization, not initializing any");
-		return;
-	}
-	g_bGameModeInitializationFailed = true;
-}
-
 
 /*******************************************************************************
  *	START/STOP GAME MODE
@@ -173,9 +161,6 @@ stock StopGameMode(GameModeEndReason:reason)
 
 		RemoveTargetFilters(g_hCurrentGameMode);
 
-		SimpleOptionalPluginCallOneParam(g_hCurrentGameModePlugin, "Gamma_OnGameModeEnd", reason);
-		SimpleForwardCallTwoParams(g_hGlobal_OnGameModeEnded, g_hCurrentGameMode, reason);
-
 		// Release all clients from their behaviours (curses!)
 		DEBUG_PRINT1("Gamma:StopGameMode(reason=%d) : Releasing all players", reason);
 		for (new i = 1; i <= MaxClients; i++)
@@ -186,6 +171,10 @@ stock StopGameMode(GameModeEndReason:reason)
 			}
 		}
 		DEBUG_PRINT1("Gamma:StopGameMode(reason=%d) : Released all players", reason);
+
+		// Now all clients are released, notify about the end
+		SimpleOptionalPluginCallOneParam(g_hCurrentGameModePlugin, "Gamma_OnGameModeEnd", reason);
+		SimpleForwardCallTwoParams(g_hGlobal_OnGameModeEnded, g_hCurrentGameMode, reason);
 
 		if (reason == GameModeEndReason_ForceStopped)
 		{
@@ -333,7 +322,7 @@ stock bool:AttemptStart(GameMode:gameMode)
 {
 	if (gameMode != INVALID_GAME_MODE)
 	{
-		#if defined DEBUG || defined DEBUG_LOG
+		#if defined DEBUG && DEBUG > 0
 
 		new String:gameModeName[GAME_MODE_NAME_MAX_LENGTH];
 		GetGameModeName(gameMode, gameModeName, sizeof(gameModeName));
@@ -404,11 +393,11 @@ stock RemoveTargetFilters(GameMode:gameMode)
  *	NATIVES
  *******************************************************************************/
 
-public Native_Gamma_GetAllGameModes(Handle:plugin, numParams)
+public Native_Gamma_GetGameModeIterator(Handle:plugin, numParams)
 {
-	// Clone the array so the target plugin can't make changes to the internal data
-	new Handle:arrayGameModesClone = CloneArray(g_hArrayGameModes);
-	return _:TransferHandleOwnership(arrayGameModesClone, plugin);
+	// Create an iterator from the global game mode array
+	new Handle:iterator = CreateGameModeIterator(g_hArrayGameModes);
+	return _:TransferHandleOwnership(iterator, plugin);
 }
 
 public Native_Gamma_GetCurrentGameMode(Handle:plugin, numParams)
@@ -468,16 +457,15 @@ public Native_Gamma_GetGameModeName(Handle:plugin, numParams)
 	SetNativeString(2, gameModeName, GetNativeCell(3));
 }
 
-public Native_Gamma_GetGameModeBehaviourTypes(Handle:plugin, numParams)
+public Native_Gamma_GetGameModeBehaviourTypeIterator(Handle:plugin, numParams)
 {
 	new GameMode:gameMode = GameMode:GetNativeCell(1);
 
 	// GetGameModeBehaviourTypes is an accessor, so it returns the internal handle for behaviour types
 	new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
+	new Handle:iterator = CreateBehaviourTypeIterator(behaviourTypes);
 
-	// Clone the array so the target plugin can't make changes to the internal data
-	behaviourTypes = CloneArray(behaviourTypes);
-	return _:TransferHandleOwnership(behaviourTypes, plugin);
+	return _:TransferHandleOwnership(iterator, plugin);
 }
 
 public Native_Gamma_ForceStopGameMode(Handle:plugin, numParams)
@@ -547,14 +535,13 @@ stock GameMode:CreateGameMode(Handle:plugin, const String:name[], &GameModeCreat
 	// Make the game mode initialize it's BehaviourTypes, if it needs to, also it's only valid during this call!
 	g_hGameModeInitializing = GameMode:gameMode;
 	g_hGameModeInitializingPlugin = plugin;
-	g_bGameModeInitializationFailed = false;
 
-	new onCreateError;
+	new onCreateError = SP_ERROR_NONE;
 	SimpleOptionalPluginCall(plugin, "Gamma_OnCreateGameMode", _, onCreateError);
 
 	g_hGameModeInitializing = INVALID_GAME_MODE;
 	g_hGameModeInitializingPlugin = INVALID_HANDLE;
-	if (g_bGameModeInitializationFailed || onCreateError != SP_ERROR_NONE)
+	if (onCreateError != SP_ERROR_NONE)
 	{
 		DEBUG_PRINT0("Gamma:CreateGameMode() : Initializing failed");
 
@@ -624,10 +611,10 @@ stock bool:GetGameModeName(GameMode:gameMode, String:buffer[], maxlen)
 }
 
 // Adds a behaviour type to a game mode
-stock AddBehaviourType(GameMode:gameMode, BehaviourType:behaviourType)
+stock GameModeAddBehaviourType(GameMode:gameMode, BehaviourType:behaviourType)
 {
 	// First we make sure that the behaviour type owner is the game mode (a little redundant, but better safe than sorry!)
-	if (GetBehaviourTypeOwner(behaviourType) == gameMode)
+	if (GetBehaviourTypeOwnerGameMode(behaviourType) == gameMode)
 	{
 		new Handle:behaviourTypes = GetGameModeBehaviourTypes(gameMode);
 		PushArrayCell(behaviourTypes, behaviourType);

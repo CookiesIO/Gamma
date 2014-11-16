@@ -5,6 +5,7 @@
 
 // Sublime Text 2 auto completion
 #include <gamma>
+#include "gamma/behaviour-type.sp"
 
 /*******************************************************************************
  *	DEFINITIONS
@@ -17,12 +18,16 @@
  *		Name : String[BEHAVIOUR_NAME_MAX_LENGTH]
  *		PossessedPlayers : List<client>
  *		FunctionOverrides : Map<function name, function>
+ *		BehaviourTypes : List<BehaviourType>
+ *		PossessionsCause : List<[Instigator, Target, Behaviour]>
  */
 #define BEHAVIOUR_PLUGIN "Plugin"
 #define BEHAVIOUR_TYPE "Type"
 #define BEHAVIOUR_NAME "Name"
 #define BEHAVIOUR_POSSESSED_PLAYERS "PossessedPlayers"
 #define BEHAVIOUR_FUNCTION_OVERRIDES "FunctionOverrides"
+#define BEHAVIOUR_BEHAVIOUR_TYPES "BehaviourTypes"
+#define BEHAVIOUR_POSSESSIONS_CAUSED "PossessionsCaused"
 
 
 // Error codes for CreateBehaviour()
@@ -84,7 +89,9 @@ stock RegisterBehaviourNatives()
 	CreateNative("Gamma_GiveBehaviour", Native_Gamma_GiveBehaviour);
 	CreateNative("Gamma_TakeBehaviour", Native_Gamma_TakeBehaviour);
 	CreateNative("Gamma_GiveRandomBehaviour", Native_Gamme_GiveRandomBehaviour);
-	CreateNative("Gamma_GetPlayerBehaviours", Native_Gamma_GetPlayerBehaviours);
+	CreateNative("Gamma_GetPlayerBehaviourIterator", Native_Gamma_GetPlayerBehaviourIterator);
+	CreateNative("Gamma_IsPlayerPossessedByBehaviour", Native_Gamma_IsPlayerPossessedByBehaviour);
+	CreateNative("Gamma_IsPlayerPossessedByPlugin", Native_Gamma_IsPlayerPossessedByPlugin);
 }
 
 stock Behaviour_OnPluginStart()
@@ -135,7 +142,7 @@ stock Behaviour_OnClientDisconnect(client)
 	g_bClientHasPrivateBehaviourPlayerRunCmd[client] = false;
 }
 
- // Frees a player from all his behaviours
+// Frees a player from all his behaviours
 stock ReleasePlayerFromBehaviours(client, BehaviourReleaseReason:reason)
 {
 	new Handle:behaviours = g_hPlayerArrayBehaviours[client];
@@ -146,6 +153,22 @@ stock ReleasePlayerFromBehaviours(client, BehaviourReleaseReason:reason)
 	{
 		BehaviourReleasePlayer(GetArrayBehaviour(behaviours, j), client, reason);
 	}
+}
+
+
+stock bool:IsInitializingBehaviour()
+{
+	return (g_hBehaviourInitializing != INVALID_BEHAVIOUR);
+}
+
+stock Behaviour:GetInitializingBehaviour()
+{
+	return g_hBehaviourInitializing;
+}
+
+stock Handle:GetInitializingBehaviourPlugin()
+{
+	return g_hBehaviourInitializingPlugin;
 }
 
 
@@ -434,12 +457,23 @@ public Native_Gamma_GetPossessedPlayers(Handle:plugin, numParams)
 {
 	new Behaviour:behaviour = Behaviour:GetNativeCell(1);
 
+	new maxsize = GetNativeCell(3);
+	new players[maxsize];
+
 	// GetBehaviourPossessedPlayers is an accessor, so it returns the internal handle for possessed players
 	new Handle:possessedPlayers = GetBehaviourPossessedPlayers(behaviour);
+	new possessedPlayerCount = GetArraySize(possessedPlayers);
 
-	// Clone the array so the target plugin can't make changes to the internal data
-	possessedPlayers = CloneArray(possessedPlayers);
-	return _:TransferHandleOwnership(possessedPlayers, plugin);
+	new i = 0;
+	for (; i < possessedPlayerCount && i < maxsize; i++)
+	{
+		players[i] = GetArrayCell(possessedPlayers, i);
+	}
+
+	SetNativeArray(2, players, maxsize);
+
+	// Return the number of players written to the array
+	return i;
 }
 
 public Native_Gamma_BehaviourHasFunction(Handle:plugin, numParams)
@@ -551,11 +585,47 @@ public Native_Gamma_GiveBehaviour(Handle:plugin, numParams)
 {
 	new client = GetNativeCell(1);
 	new Behaviour:behaviour = Behaviour:GetNativeCell(2);
+	new instigator = GetNativeCell(3);
 
-	if (GetCurrentGameModePlugin() != plugin)
+	// Invalid behaviour, no go
+	if (behaviour == INVALID_BEHAVIOUR)
 	{
-		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call Gamma_GiveBehaviour");
+		return ThrowNativeError(SP_ERROR_NATIVE, "Behaviour mustn't be INVALID_BEHAVIOUR");
 	}
+
+	// Validate the game mode and plugin
+	new BehaviourType:behaviourType = GetBehaviourType(behaviour);
+	new GameMode:gameMode = GetBehaviourTypeOwnerGameMode(behaviourType);
+	if (GetCurrentGameMode() != gameMode)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Only behaviours for the current game mode can be given");
+	}
+	// Don't allow the owning game mode to give behaviours, if it's a sub behaviour type
+	if (GetBehaviourTypePlugin(behaviourType) != plugin)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Only the owning plugin of a behaviour type can give a behaviour of that type");
+	}
+
+	// If this behaviour type is made by a behaviour, make sure the instigator owns the behaviour
+	new Behaviour:behaviourOwner = GetBehaviourTypeOwnerBehaviour(behaviourType);
+	if (behaviourOwner != INVALID_BEHAVIOUR)
+	{
+		if (instigator < 1 || instigator > MaxClients)
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Invalid instigator index %d", instigator);
+		}
+		if (!IsClientInGame(instigator))
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Instigator %d is not in game", instigator);
+		}
+
+		if (!IsPlayerPossessedByBehaviour(instigator, behaviourOwner))
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Instigator does not have the rights to assign the behaviour");
+		}
+	}
+
+	// Validate target client
 	if (client < 1 || client > MaxClients)
 	{
 		return ThrowNativeError(SP_ERROR_NATIVE, "Invalid client index %d", client);
@@ -565,7 +635,7 @@ public Native_Gamma_GiveBehaviour(Handle:plugin, numParams)
 		return ThrowNativeError(SP_ERROR_NATIVE, "Client %d is not in game", client);
 	}
 
-	BehaviourPossessPlayer(behaviour, client);
+	BehaviourPossessPlayer(behaviour, client, instigator, behaviourOwner);
 	return 1;
 }
 
@@ -574,10 +644,26 @@ public Native_Gamma_TakeBehaviour(Handle:plugin, numParams)
 	new client = GetNativeCell(1);
 	new Behaviour:behaviour = Behaviour:GetNativeCell(2);
 
-	if (GetCurrentGameModePlugin() != plugin)
+	// Invalid behaviour, no go
+	if (behaviour == INVALID_BEHAVIOUR)
 	{
-		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call Gamma_TakeBehaviour");
+		return ThrowNativeError(SP_ERROR_NATIVE, "Behaviour mustn't be INVALID_BEHAVIOUR");
 	}
+
+	// Validate the game mode and plugin
+	new BehaviourType:behaviourType = GetBehaviourType(behaviour);
+	new GameMode:gameMode = GetBehaviourTypeOwnerGameMode(behaviourType);
+	if (GetCurrentGameMode() != gameMode)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Only behaviours for the current game mode can be taken");
+	}
+	// Allow the owning game mode to steal behaviours as well
+	if (GetBehaviourTypePlugin(behaviourType) != plugin && GetGameModePlugin(gameMode) != plugin)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Only the owning plugin or game mode of a behaviour type can take a behaviour of that type");
+	}
+
+	// Validate target client
 	if (client < 1 || client > MaxClients)
 	{
 		return ThrowNativeError(SP_ERROR_NATIVE, "Invalid client index %d", client);
@@ -587,7 +673,7 @@ public Native_Gamma_TakeBehaviour(Handle:plugin, numParams)
 		return ThrowNativeError(SP_ERROR_NATIVE, "Client %d is not in game", client);
 	}
 
-	BehaviourReleasePlayer(behaviour, client, BehaviourReleaseReason_GameModeTook);
+	BehaviourReleasePlayer(behaviour, client, BehaviourReleaseReason_Taken);
 	return 1;
 }
 
@@ -595,11 +681,46 @@ public Native_Gamme_GiveRandomBehaviour(Handle:plugin, numParams)
 {
 	new client = GetNativeCell(1);
 	new BehaviourType:behaviourType = BehaviourType:GetNativeCell(2);
+	new instigator = GetNativeCell(3);
 
-	if (GetCurrentGameModePlugin() != plugin)
+	// Invalid behaviour, no go
+	if (behaviourType == INVALID_BEHAVIOUR_TYPE)
 	{
-		return ThrowNativeError(SP_ERROR_NATIVE, "Only the currently active game mode plugin can call Gamma_GiveRandomBehaviour");
+		return ThrowNativeError(SP_ERROR_NATIVE, "BehaviourType mustn't be INVALID_BEHAVIOUR_TYPE");
 	}
+
+	// Validate the game mode and plugin
+	new GameMode:gameMode = GetBehaviourTypeOwnerGameMode(behaviourType);
+	if (GetCurrentGameMode() != gameMode)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Only behaviours for the current game mode can be given");
+	}
+	// Don't allow the owning game mode to give behaviours, if it's a sub behaviour type
+	if (GetBehaviourTypePlugin(behaviourType) != plugin)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Only the owning plugin of a behaviour type can give a behaviour of that type");
+	}
+
+	// If this behaviour type is made by a behaviour, make sure the instigator owns the behaviour
+	new Behaviour:behaviourOwner = GetBehaviourTypeOwnerBehaviour(behaviourType);
+	if (behaviourOwner != INVALID_BEHAVIOUR)
+	{
+		if (instigator < 1 || instigator > MaxClients)
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Invalid instigator index %d", instigator);
+		}
+		if (!IsClientInGame(instigator))
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Instigator %d is not in game", instigator);
+		}
+
+		if (!IsPlayerPossessedByBehaviour(instigator, behaviourOwner))
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Instigator does not have the rights to assign the behaviour");
+		}
+	}
+
+	// Validate target client
 	if (client < 1 || client > MaxClients)
 	{
 		return ThrowNativeError(SP_ERROR_NATIVE, "Invalid client index %d", client);
@@ -610,11 +731,11 @@ public Native_Gamme_GiveRandomBehaviour(Handle:plugin, numParams)
 	}
 
 	new Behaviour:behaviour = GetRandomBehaviour(behaviourType);
-	BehaviourPossessPlayer(behaviour, client);
+	BehaviourPossessPlayer(behaviour, client, instigator, behaviourOwner);
 	return _:behaviour;
 }
 
-public Native_Gamma_GetPlayerBehaviours(Handle:plugin, numParams)
+public Native_Gamma_GetPlayerBehaviourIterator(Handle:plugin, numParams)
 {
 	new client = GetNativeCell(1);
 	new BehaviourType:behaviourType = BehaviourType:GetNativeCell(2);
@@ -630,10 +751,45 @@ public Native_Gamma_GetPlayerBehaviours(Handle:plugin, numParams)
 
 	// GetPlayerBehaviours returns a new handle, since it's not an accessor
 	new Handle:behaviours = GetPlayerBehaviours(client, behaviourType);
+	new Handle:iterator = CreateBehaviourIterator(behaviours);
+	CloseHandle(behaviours);
 
-	return _:TransferHandleOwnership(behaviours, plugin);
+	return _:TransferHandleOwnership(iterator, plugin);
 }
 
+public Native_Gamma_IsPlayerPossessedByBehaviour(Handle:plugin, numParams)
+{
+	new client = GetNativeCell(1);
+	new Behaviour:behaviour = Behaviour:GetNativeCell(2);
+
+	if (client < 1 || client > MaxClients)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Invalid client index %d", client);
+	}
+	if (!IsClientInGame(client))
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Client %d is not in game", client);
+	}
+
+	return _:IsPlayerPossessedByBehaviour(client, behaviour);
+}
+
+public Native_Gamma_IsPlayerPossessedByPlugin(Handle:plugin, numParams)
+{
+	new client = GetNativeCell(1);
+	new Handle:behaviourPlugin = Handle:GetNativeCell(2);
+
+	if (client < 1 || client > MaxClients)
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Invalid client index %d", client);
+	}
+	if (!IsClientInGame(client))
+	{
+		return ThrowNativeError(SP_ERROR_NATIVE, "Client %d is not in game", client);
+	}
+
+	return _:IsPlayerPossessedByPlugin(client, behaviourPlugin);
+}
 
 
 /*******************************************************************************
@@ -647,12 +803,14 @@ public Native_Gamma_GetPlayerBehaviours(Handle:plugin, numParams)
  *		Name : String[BEHAVIOUR_NAME_MAX_LENGTH]
  *		PossessedPlayers : List<client>
  *		FunctionOverrides : Map<function name, function>
+ *		BehaviourTypes : List<BehaviourType>
+ *		PossessionsCause : List<[Instigator, Target, Behaviour]>
  */
 
  // Creates a behaviour from a plugin, type and name
 stock Behaviour:CreateBehaviour(Handle:plugin, BehaviourType:type, const String:name[], Function:onCreateBehaviour, &BehaviourCreationError:error)
 {
-	#if defined DEBUG || defined DEBUG_LOG
+	#if defined DEBUG && DEBUG > 0
 
 	new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
 	GetBehaviourTypeName(type, behaviourTypeName, sizeof(behaviourTypeName));
@@ -685,6 +843,8 @@ stock Behaviour:CreateBehaviour(Handle:plugin, BehaviourType:type, const String:
 	SetTrieString(behaviour, BEHAVIOUR_NAME, name);
 	SetTrieValue(behaviour, BEHAVIOUR_POSSESSED_PLAYERS, CreateArray());
 	SetTrieValue(behaviour, BEHAVIOUR_FUNCTION_OVERRIDES, CreateTrie());
+	SetTrieValue(behaviour, BEHAVIOUR_BEHAVIOUR_TYPES, CreateArray());
+	SetTrieValue(behaviour, BEHAVIOUR_POSSESSIONS_CAUSED, CreateArray(3));
 
 	new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
 	GetBehaviourFullNameEx(type, name, behaviourFullName, sizeof(behaviourFullName));
@@ -742,7 +902,7 @@ stock Behaviour:CreateBehaviour(Handle:plugin, BehaviourType:type, const String:
 	SimpleForwardCallOneParam(g_hGlobal_OnBehaviourCreated, behaviour);
 
 	// If current game mode == behaviour types owner, we should add the behaviour as a target filter as well!
-	if (GetCurrentGameMode() == GetBehaviourTypeOwner(type))
+	if (GetCurrentGameMode() == GetBehaviourTypeOwnerGameMode(type))
 	{
 		AddBehaviourTargetFilter(Behaviour:behaviour);
 	}
@@ -843,13 +1003,13 @@ stock bool:GetBehaviourName(Behaviour:behaviour, String:buffer[], maxlen)
 }
 
 // Possesses a player with a behaviour
-stock BehaviourPossessPlayer(Behaviour:behaviour, client)
+stock BehaviourPossessPlayer(Behaviour:behaviour, client, instigator, Behaviour:instigatorBehaviour)
 {
 	// Check if the client already owns the behaviour or not before giving it to him
 	new index = FindValueInArray(g_hPlayerArrayBehaviours[client], behaviour);
 	if (index == -1)
 	{
-		#if defined DEBUG || defined DEBUG_LOG
+		#if defined DEBUG && DEBUG > 0
 
 		new String:behaviourFullName[BEHAVIOUR_NAME_MAX_LENGTH];
 		GetBehaviourFullName(behaviour, behaviourFullName, sizeof(behaviourFullName));
@@ -877,6 +1037,12 @@ stock BehaviourPossessPlayer(Behaviour:behaviour, client)
 		new Handle:possessedPlayers = GetBehaviourPossessedPlayers(behaviour);
 		PushArrayCell(possessedPlayers, client);
 
+		// Add to the owner behaviours possessions caused, if it has an owner behaviour
+		if (instigatorBehaviour != INVALID_BEHAVIOUR)
+		{
+			AddBehaviourPossessionCaused(instigatorBehaviour, instigator, client, behaviour);
+		}
+
 		// Then notify the behaviour and other plugins that the client has been possessed
 		Gamma_SimpleBehaviourFunctionCall(behaviour, "Gamma_OnBehaviourPossessingClient", _, client);
 		SimpleForwardCallTwoParams(g_hGlobal_OnBehaviourPossessedClient, client, behaviour);
@@ -890,7 +1056,7 @@ stock BehaviourReleasePlayer(Behaviour:behaviour, client, BehaviourReleaseReason
 	new index = FindValueInArray(g_hPlayerArrayBehaviours[client], behaviour);
 	if (index != -1)
 	{
-		#if defined DEBUG || defined DEBUG_LOG
+		#if defined DEBUG && DEBUG > 0
 
 		new String:behaviourFullName[BEHAVIOUR_FULL_NAME_MAX_LENGTH];
 		GetBehaviourFullName(behaviour, behaviourFullName, sizeof(behaviourFullName));
@@ -918,10 +1084,54 @@ stock BehaviourReleasePlayer(Behaviour:behaviour, client, BehaviourReleaseReason
 		new Handle:possessedPlayers = GetBehaviourPossessedPlayers(behaviour);
 		RemoveFromArray(possessedPlayers, FindValueInArray(possessedPlayers, client));
 
+		// Release all players who were possessed because of this client
+		new Handle:possessionsCaused = GetBehaviourPossessionsCaused(behaviour);
+		DECREASING_LOOP(i,GetArraySize(possessionsCaused))
+		{
+			if (GetArrayCell(possessionsCaused, i, 0) == client)
+			{
+				new target = GetArrayCell(possessionsCaused, i, 1);
+				new Behaviour:behaviourGiven = GetArrayBehaviour(possessionsCaused, i, 2);
+
+				BehaviourReleasePlayer(behaviourGiven, target, BehaviourReleaseReason_PossessorReleased);
+				RemoveFromArray(possessionsCaused, i);
+			}
+		}
+
 		// Then notify the behaviour and other plugins that the client has been released
 		Gamma_SimpleBehaviourFunctionCall(behaviour, "Gamma_OnBehaviourReleasingClient", _, client, reason);
 		SimpleForwardCallThreeParams(g_hGlobal_OnBehaviourReleasedClient, client, behaviour, reason);
 	}
+}
+
+// Gets whether or not the player is possessed by a behaviour
+stock IsPlayerPossessedByBehaviour(client, Behaviour:behaviour)
+{
+	new Handle:behaviours = g_hPlayerArrayBehaviours[client];
+	DECREASING_LOOP(i,GetArraySize(behaviours))
+	{
+		new Behaviour:indexedBehaviour = GetArrayBehaviour(behaviours, i);
+		if (indexedBehaviour == behaviour)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// Gets whether or not the player is possessed by a behaviour of a plugin
+stock IsPlayerPossessedByPlugin(client, Handle:plugin)
+{
+	new Handle:behaviours = g_hPlayerArrayBehaviours[client];
+	DECREASING_LOOP(i,GetArraySize(behaviours))
+	{
+		new Behaviour:indexedBehaviour = GetArrayBehaviour(behaviours, i);
+		if (GetBehaviourPlugin(indexedBehaviour) == plugin)
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 // Gets all behaviours on a client, if filter != INVALID_BEHAVIOUR_TYPE then only of that behaviour type
@@ -995,6 +1205,52 @@ stock Function:GetFunctionInBehaviour(Behaviour:behaviour, const String:function
 	return GetFunctionByName(plugin, functionName);
 }
 
+// Adds a behaviour type to a behaviour
+stock BehaviourAddBehaviourType(Behaviour:behaviour, BehaviourType:behaviourType)
+{
+	// First we make sure that the behaviour type owner is the game mode (a little redundant, but better safe than sorry!)
+	if (GetBehaviourTypeOwnerBehaviour(behaviourType) == behaviour)
+	{
+		new Handle:behaviourTypes = GetBehaviourBehaviourTypes(behaviour);
+		PushArrayCell(behaviourTypes, behaviourType);
+	}
+}
+
+// Gets an ADT array of all the behaviour types associated to a game mode
+stock Handle:GetBehaviourBehaviourTypes(Behaviour:behaviour)
+{
+	new Handle:behaviourTypes;
+	if (GetTrieValue(Handle:behaviour, BEHAVIOUR_BEHAVIOUR_TYPES, behaviourTypes))
+	{
+		return behaviourTypes;
+	}
+	// Shouldn't actually get here, but we keep it just incase
+	return INVALID_HANDLE;
+}
+
+// Adds a possession caused to the behaviour
+stock AddBehaviourPossessionCaused(Behaviour:behaviour, instigator, target, Behaviour:givenBehaviour)
+{
+	new Handle:possessionsCaused = GetBehaviourPossessionsCaused(behaviour);
+	new any:possessionsCausedInfo[3];
+	possessionsCausedInfo[0] = instigator;
+	possessionsCausedInfo[1] = target;
+	possessionsCausedInfo[2] = givenBehaviour;
+	PushArrayArray(possessionsCaused, possessionsCausedInfo, 3);
+}
+
+// Gets an ADT array of all the behaviour possessions caused
+stock Handle:GetBehaviourPossessionsCaused(Behaviour:behaviour)
+{
+	new Handle:possessionsCaused;
+	if (GetTrieValue(Handle:behaviour, BEHAVIOUR_POSSESSIONS_CAUSED, possessionsCaused))
+	{
+		return possessionsCaused;
+	}
+	// Shouldn't actually get here, but we keep it just incase
+	return INVALID_HANDLE;
+}
+
 // Destroys the behaviour, freeing all it's resources
 stock DestroyBehaviour(Behaviour:behaviour)
 {
@@ -1022,12 +1278,23 @@ stock DestroyBehaviour(Behaviour:behaviour)
 	DEBUG_PRINT1("Gamma:DestroyBehaviour(\"%s\") : Released players", behaviourFullName);
 
 	// If current game mode == behaviour types owner, we should remove from target filter
-	if (GetCurrentGameMode() == GetBehaviourTypeOwner(GetBehaviourType(behaviour)))
+	if (GetCurrentGameMode() == GetBehaviourTypeOwnerGameMode(GetBehaviourType(behaviour)))
 	{
 		RemoveBehaviourTargetFilter(behaviour);
 	}
 
-	// Then close the possessed players and behaviour trie handles
+	// And lastly destroy all behaviour types
+	DEBUG_PRINT1("Gamma:DestroyBehaviour(\"%s\") : Destroying behaviour types", behaviourFullName);
+	new Handle:behaviourTypes = GetBehaviourBehaviourTypes(behaviour);
+	DECREASING_LOOP(i,GetArraySize(behaviourTypes))
+	{
+		DestroyBehaviourType(GetArrayBehaviourType(behaviourTypes, i));
+	}
+	DEBUG_PRINT1("Gamma:DestroyBehaviour(\"%s\") : Destroyed behaviour types", behaviourFullName);
+
+	// Then close all handles involved in this behaviour
+	CloseHandle(GetBehaviourPossessionsCaused(behaviour));
+	CloseHandle(behaviourTypes);
 	CloseHandle(possessedPlayers);
 	CloseHandle(Handle:behaviour);
 }

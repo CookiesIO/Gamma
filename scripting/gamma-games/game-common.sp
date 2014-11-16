@@ -39,25 +39,25 @@ stock LoadGameDataCommon(Handle:gc)
 stock SetupCommonOnMapStart()
 {
 	// At least RoundStart is required
-	HookEvent(common_strRoundStartEvent, Common_RoundStartEvent);
+	HookEvent(common_strRoundStartEvent, Common_RoundStartEvent, EventHookMode_Pre);
 	if (common_bHasRoundEndEvent)
 	{
-		HookEvent(common_strRoundEndEvent, Common_RoundEndEvent);
+		HookEvent(common_strRoundEndEvent, Common_RoundEndEvent, EventHookMode_PostNoCopy);
 	}
 }
 
 stock CleanUpCommonOnMapEnd()
 {
-	UnhookEvent(common_strRoundStartEvent, Common_RoundStartEvent);
+	UnhookEvent(common_strRoundStartEvent, Common_RoundStartEvent, EventHookMode_Pre);
 	if (common_bHasRoundEndEvent)
 	{
-		UnhookEvent(common_strRoundEndEvent, Common_RoundEndEvent);
+		UnhookEvent(common_strRoundEndEvent, Common_RoundEndEvent, EventHookMode_PostNoCopy);
 	}
 }
 
 stock ForceRoundEndCommon()
 {
-	// This should be okay, riiiight? Thanks to Mitchell and Leonardo
+	// Untested, Mitchell and Leonardo and suggested it added it just-in-case
     new flags = GetCommandFlags("mp_forcewin");
     SetCommandFlags("mp_forcewin", flags & ~FCVAR_CHEAT);
     ServerCommand("mp_forcewin %i", 0);

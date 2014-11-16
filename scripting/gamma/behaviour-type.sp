@@ -13,14 +13,18 @@
 
 /**
  *	BehaviourType
+ *		SuperType : BehaviourType
  *		Plugin : PluginHandle
- *		Owner : GameMode
+ *		OwnerGameMode : GameMode
+ *		OwnerBehaviour : Behaviour
  *		Name : String[BEHAVIOUR_TYPE_NAME_MAX_LENGTH]
  *		Requirements : List<FunctionName>
  *		Behaviours : List<Behaviour>
  */
+#define BEHAVIOUR_TYPE_SUPER_TYPE "SuperType"
 #define BEHAVIOUR_TYPE_PLUGIN "Plugin"
-#define BEHAVIOUR_TYPE_OWNER "Owner"
+#define BEHAVIOUR_TYPE_OWNER_GAME_MODE "OwnerGameMode"
+#define BEHAVIOUR_TYPE_OWNER_BEHAVIOUR "OwnerBehaviour"
 #define BEHAVIOUR_TYPE_NAME "Name"
 #define BEHAVIOUR_TYPE_REQUIREMENTS "Requirements"
 #define BEHAVIOUR_TYPE_BEHAVIOURS "Behaviours"
@@ -30,9 +34,10 @@
 enum BehaviourTypeCreationError
 {
 	BehaviourTypeCreationError_None,
-	BehaviourTypeCreationError_InvalidName,				// Invalid name for a behaviour type
-	BehaviourTypeCreationError_AlreadyExists,			// A behaviour type with the same name already exists
-	BehaviourTypeCreationError_GameModeNotInCreation,	// The game mode is not in creation AKA in the Gamma_OnCreateGameMode function
+	BehaviourTypeCreationError_InvalidName,			// Invalid name for a behaviour type
+	BehaviourTypeCreationError_AlreadyExists,		// A behaviour type with the same name already exists
+	BehaviourTypeCreationError_NotInCreation,		// The game mode/behaviour is not in creation AKA in the Gamma_OnCreate(GameMode|Behaviour) function
+	BehaviourTypeCreationError_MismatchingGameMode, 	// The game mode/behaviours game mode owner doesn't match with the super types game mode owner
 }
 
 
@@ -58,7 +63,7 @@ stock RegisterBehaviourTypeNatives()
 	CreateNative("Gamma_GetBehaviourTypeName", Native_Gamma_GetBehaviourTypeName);
 	CreateNative("Gamma_AddBehaviourTypeRequirement", Native_Gamma_AddBehaviourTypeRequirement);
 	CreateNative("Gamma_BehaviourTypeOwnsBehaviour", Native_Gamma_BehaviourTypeOwnsBehaviour);
-	CreateNative("Gamma_GetBehaviourTypeBehaviours", Native_Gamma_GetBehaviourTypeBehaviours);
+	CreateNative("Gamma_GetBehaviourTypeBehaviourIterator", Native_Gamma_GetBehaviourTypeBehaviourIterator);
 	CreateNative("Gamma_BehaviourTypeHasBehaviours", Native_Gamma_BehaviourTypeHasBehaviours);
 	CreateNative("Gamma_GetRandomBehaviour", Native_Gamma_GetRandomBehaviour);
 }
@@ -190,26 +195,29 @@ public Native_Gamma_CreateBehaviourType(Handle:plugin, numParams)
 {
 	new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
 	GetNativeString(1, behaviourTypeName, sizeof(behaviourTypeName));
+	new BehaviourType:superType = BehaviourType:GetNativeCell(2);
 
 	new BehaviourTypeCreationError:error;
-	new BehaviourType:behaviourType = CreateBehaviourType(plugin, behaviourTypeName, error);
+	new BehaviourType:behaviourType = CreateBehaviourType(plugin, behaviourTypeName, superType, error);
 
 	// throw errors, if we have any
 	switch (error)
 	{
 		case BehaviourTypeCreationError_InvalidName:
 		{
-			FailGameModeInitialization();
 			return ThrowNativeError(SP_ERROR_NATIVE, "Behaviour type name (%s) is invalid", behaviourTypeName);
 		}
 		case BehaviourTypeCreationError_AlreadyExists:
 		{
-			FailGameModeInitialization();
 			return ThrowNativeError(SP_ERROR_NATIVE, "Behaviour type (%s) already exists", behaviourTypeName);
 		}
-		case BehaviourTypeCreationError_GameModeNotInCreation:
+		case BehaviourTypeCreationError_NotInCreation:
 		{
-			return ThrowNativeError(SP_ERROR_NATIVE, "Cannot call Gamma_CreateBehaviourType outside of Gamma_OnCreateGameMode");
+			return ThrowNativeError(SP_ERROR_NATIVE, "Cannot call Gamma_CreateBehaviourType outside of Gamma_OnCreateGameMode/Gamma_OnCreateBehaviour");
+		}
+		case BehaviourTypeCreationError_MismatchingGameMode:
+		{
+			return ThrowNativeError(SP_ERROR_NATIVE, "Game mode of the super behaviour type does not match the game mode of the creator");
 		}
 	}
 
@@ -258,16 +266,15 @@ public Native_Gamma_BehaviourTypeOwnsBehaviour(Handle:plugin, numParams)
 	return _:BehaviourTypeOwnsBehaviour(behaviourType, behaviour);
 }
 
-public Native_Gamma_GetBehaviourTypeBehaviours(Handle:plugin, numParams)
+public Native_Gamma_GetBehaviourTypeBehaviourIterator(Handle:plugin, numParams)
 {
 	new BehaviourType:behaviourType = BehaviourType:GetNativeCell(1);
 
 	// GetBehaviourTypeBehaviours is an accessor, so it returns the internal handle for behaviours
 	new Handle:behaviours = GetBehaviourTypeBehaviours(behaviourType);
-
-	// Clone the array so the target plugin can't make changes to the internal data
-	behaviours = CloneArray(behaviours);
-	return _:TransferHandleOwnership(behaviours, plugin);
+	new Handle:iterator = CreateBehaviourIterator(behaviours);
+	
+	return _:TransferHandleOwnership(iterator, plugin);
 }
 
 public Native_Gamma_BehaviourTypeHasBehaviours(Handle:plugin, numParams)
@@ -290,22 +297,50 @@ public Native_Gamma_GetRandomBehaviour(Handle:plugin, numParams)
 
 /**
  *	BehaviourType
+ *		SuperType : BehaviourType
  *		Plugin : PluginHandle
- *		Owner : GameMode
+ *		OwnerGameMode : GameMode
+ *		OwnerBehaviour : Behaviour
  *		Name : String[BEHAVIOUR_TYPE_NAME_MAX_LENGTH]
  *		Requirements : List<FunctionName>
  *		Behaviours : List<Behaviour>
  */
 
 // Creates a behaviour type from a plugin and name
-stock BehaviourType:CreateBehaviourType(Handle:plugin, const String:name[], &BehaviourTypeCreationError:error)
+stock BehaviourType:CreateBehaviourType(Handle:plugin, const String:name[], BehaviourType:superType, &BehaviourTypeCreationError:error)
 {
 	DEBUG_PRINT2("Gamma:CreateBehaviourType(%X, \"%s\")", plugin, name);
 
-	// Only valid to create behaviour types when a game mode is initializing, also only by the same plugin
+	// Not initializing either a game mode or a behaviour
+	if (!IsInitializingGameMode() && !IsInitializingBehaviour())
+	{
+		error = BehaviourTypeCreationError_NotInCreation;
+		return INVALID_BEHAVIOUR_TYPE;
+	}
+
+	new GameMode:ownerGameMode = INVALID_GAME_MODE;
+	// Only valid to create behaviour types when a game mode or behaviour is initializing, also only by the same plugin
 	if (GetInitializingGameModePlugin() != plugin)
 	{
-		error = BehaviourTypeCreationError_GameModeNotInCreation;
+		if (GetInitializingBehaviourPlugin() != plugin)
+		{
+			error = BehaviourTypeCreationError_NotInCreation;
+			return INVALID_BEHAVIOUR_TYPE;
+		}
+		// Valid behaviour creating, fetch the owning game mode
+		new BehaviourType:behavioursBehaviourType = GetBehaviourType(GetInitializingBehaviour());
+		ownerGameMode = GetBehaviourTypeOwnerGameMode(behavioursBehaviourType);
+	}
+	else
+	{
+		// Valid game mode creating, fetch initializing game mode
+		ownerGameMode = GetInitializingGameMode();
+	}
+
+	// Make sure the super behaviour types game mode owner is the same as ownerGameMode
+	if (superType != INVALID_BEHAVIOUR_TYPE && GetBehaviourTypeOwnerGameMode(superType) != ownerGameMode)
+	{
+		error = BehaviourTypeCreationError_MismatchingGameMode;
 		return INVALID_BEHAVIOUR_TYPE;
 	}
 
@@ -326,8 +361,10 @@ stock BehaviourType:CreateBehaviourType(Handle:plugin, const String:name[], &Beh
 	// Create the trie to hold the behaviour type data
 	new Handle:behaviourType = CreateTrie();
 
+	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_SUPER_TYPE, superType);
 	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_PLUGIN, plugin);
-	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_OWNER, GetInitializingGameMode());
+	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_OWNER_GAME_MODE, ownerGameMode);
+	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_OWNER_BEHAVIOUR, GetInitializingBehaviour());
 	SetTrieString(behaviourType, BEHAVIOUR_TYPE_NAME, name);
 	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_REQUIREMENTS, CreateArray(ByteCountToCells(SYMBOL_MAX_LENGTH)));
 	SetTrieValue(behaviourType, BEHAVIOUR_TYPE_BEHAVIOURS, CreateArray());
@@ -338,7 +375,15 @@ stock BehaviourType:CreateBehaviourType(Handle:plugin, const String:name[], &Beh
 	SetTrieValueCaseInsensitive(g_hTrieBehaviourTypes, name, behaviourType);
 
 	// Add behaviour type to game mode
-	AddBehaviourType(GetInitializingGameMode(), BehaviourType:behaviourType);
+	if (GetInitializingBehaviour() != INVALID_BEHAVIOUR)
+	{
+		BehaviourAddBehaviourType(GetInitializingBehaviour(), BehaviourType:behaviourType);
+	} 
+	else
+	{
+		GameModeAddBehaviourType(ownerGameMode, BehaviourType:behaviourType);
+	}
+	
 
 	error = BehaviourTypeCreationError_None;
 	return BehaviourType:behaviourType;
@@ -355,11 +400,23 @@ stock BehaviourType:FindBehaviourType(const String:name[])
 	return INVALID_BEHAVIOUR_TYPE;
 }
 
+// gets the super type of the behaviour type
+stock BehaviourType:GetBehaviourTypeSuperType(BehaviourType:behaviourType)
+{
+	new BehaviourType:superType;
+	if (GetTrieValue(Handle:behaviourType, BEHAVIOUR_TYPE_SUPER_TYPE, superType))
+	{
+		return superType;
+	}
+	// Shouldn't actually get here, but we keep it just incase
+	return INVALID_BEHAVIOUR_TYPE;
+}
+
 // Gets the plugin that made the behaviour type
 stock Handle:GetBehaviourTypePlugin(BehaviourType:behaviourType)
 {
 	new Handle:plugin;
-	if (GetTrieValue(Handle:behaviourType, BEHAVIOUR_PLUGIN, plugin))
+	if (GetTrieValue(Handle:behaviourType, BEHAVIOUR_TYPE_PLUGIN, plugin))
 	{
 		return plugin;
 	}
@@ -368,15 +425,27 @@ stock Handle:GetBehaviourTypePlugin(BehaviourType:behaviourType)
 }
 
 // Gets the owner game mode of the behaviour type
-stock GameMode:GetBehaviourTypeOwner(BehaviourType:behaviourType)
+stock GameMode:GetBehaviourTypeOwnerGameMode(BehaviourType:behaviourType)
 {
 	new GameMode:owner;
-	if (GetTrieValue(Handle:behaviourType, BEHAVIOUR_TYPE_OWNER, owner))
+	if (GetTrieValue(Handle:behaviourType, BEHAVIOUR_TYPE_OWNER_GAME_MODE, owner))
 	{
 		return owner;
 	}
 	// Shouldn't actually get here, but we keep it just incase
 	return INVALID_GAME_MODE;
+}
+
+// Gets the owner behaviour of the behaviour type
+stock Behaviour:GetBehaviourTypeOwnerBehaviour(BehaviourType:behaviourType)
+{
+	new Behaviour:owner;
+	if (GetTrieValue(Handle:behaviourType, BEHAVIOUR_TYPE_OWNER_BEHAVIOUR, owner))
+	{
+		return owner;
+	}
+	// Shouldn't actually get here, but we keep it just incase
+	return INVALID_BEHAVIOUR;
 }
 
 // Gets the name of the behaviour type
@@ -407,7 +476,7 @@ stock Handle:GetBehaviourTypeRequirements(BehaviourType:behaviourType)
 stock bool:AddBehaviourTypeRequirement(BehaviourType:behaviourType, const String:requirement[])
 {
 	// Only able to add requirements while initilizing the game mode - and only to a behaviour of that game mode
-	if (GetBehaviourTypeOwner(behaviourType) == GetInitializingGameMode())
+	if (GetBehaviourTypeOwnerGameMode(behaviourType) == GetInitializingGameMode())
 	{
 		PushArrayString(GetBehaviourTypeRequirements(behaviourType), requirement);
 		return true;
@@ -418,7 +487,7 @@ stock bool:AddBehaviourTypeRequirement(BehaviourType:behaviourType, const String
 // Checks if a plugin meets the requirements to be a behaviour of this type
 stock bool:BehaviourTypeCheck(BehaviourType:behaviourType, Behaviour:behaviour)
 {
-	#if defined DEBUG || defined DEBUG_LOG
+	#if defined DEBUG && DEBUG > 0
 
 	new String:behaviourTypeName[BEHAVIOUR_TYPE_NAME_MAX_LENGTH];
 	GetBehaviourTypeName(behaviourType, behaviourTypeName, sizeof(behaviourTypeName));
@@ -440,6 +509,13 @@ stock bool:BehaviourTypeCheck(BehaviourType:behaviourType, Behaviour:behaviour)
 	}
 
 	DEBUG_PRINT2("Gamma:BehaviourTypePluginCheck(\"%s\", %X) : Match", behaviourTypeName, behaviour);
+
+	new BehaviourType:superType = GetBehaviourTypeSuperType(behaviourType);
+	if (superType != INVALID_BEHAVIOUR_TYPE)
+	{
+		return BehaviourTypeCheck(superType, behaviour);
+	}
+
 	return true;
 }
 
@@ -447,7 +523,16 @@ stock bool:BehaviourTypeCheck(BehaviourType:behaviourType, Behaviour:behaviour)
 stock bool:BehaviourTypeOwnsBehaviour(BehaviourType:behaviourType, Behaviour:behaviour)
 {
 	new BehaviourType:type = GetBehaviourType(behaviour);
-	return (type == behaviourType);
+	if (type != behaviourType)
+	{
+		new BehaviourType:superType = GetBehaviourTypeSuperType(behaviourType);
+		if (superType != INVALID_BEHAVIOUR_TYPE)
+		{
+			return BehaviourTypeOwnsBehaviour(superType, behaviour);
+		}
+		return false;
+	}
+	return true;
 }
 
 // Adds a behaviour to the behaviour types behaviour list

@@ -26,7 +26,7 @@
  */
 enum GameMode
 {
-	INVALID_GAME_MODE = INVALID_HANDLE
+	INVALID_GAME_MODE = 0
 }
 
 /**
@@ -34,7 +34,7 @@ enum GameMode
  */
 enum BehaviourType
 {
-	INVALID_BEHAVIOUR_TYPE = INVALID_HANDLE
+	INVALID_BEHAVIOUR_TYPE = 0
 }
 
 /**
@@ -42,7 +42,7 @@ enum BehaviourType
  */
 enum Behaviour
 {
-	INVALID_BEHAVIOUR = INVALID_HANDLE
+	INVALID_BEHAVIOUR = 0
 }
 
 
@@ -64,10 +64,11 @@ enum GameModeEndReason
  */
 enum BehaviourReleaseReason
 {
-	BehaviourReleaseReason_GameModeTook,
-	BehaviourReleaseReason_GameModeEnded,
-	BehaviourReleaseReason_BehaviourUnloaded,
-	BehaviourReleaseReason_ClientDisconnected,
+	BehaviourReleaseReason_Taken,				// Taken by the game mode or behaviour
+	BehaviourReleaseReason_GameModeEnded,		// Game mode ended
+	BehaviourReleaseReason_BehaviourUnloaded,	// Behaviour was unloaded
+	BehaviourReleaseReason_ClientDisconnected,	// Client disconnected
+	BehaviourReleaseReason_PossessorReleased,	// Client who caused the possession was released
 }
 
 
@@ -84,12 +85,12 @@ enum BehaviourReleaseReason
 forward Gamma_PluginDetected();
 
 /**
- *	Returns an ADT array with all game modes
+ *	Gets a game mode iterator
  *
- *	@return		ADT array with all game modes
+ *	@return		Game mode iterator
  *	@note		Must be closed with CloseHandle!
  */
-native Handle:Gamma_GetAllGameModes();
+native Handle:Gamma_GetGameModeIterator();
 
 /**
  *	Returns the currently running game mode
@@ -176,11 +177,13 @@ forward Gamma_OnGameModeStarted(GameMode:gameMode);
 forward Gamma_OnGameModeEnded(GameMode:gameMode, GameModeEndReason:reason);
 
 /**
- *	Registers the current plugin as a game mode in the game mode manager, only one game mode can be registered per plugin
+ *	Registers the current plugin as a game mode in the game mode manager,
+ *	only one game mode can be registered per plugin
  *
  *	@param name		Name of the game mode
  *	@return			GameMode reference
- *	@error			Game mode with same name exists, plugin has already registered a game mode or creation failed
+ *	@error			Game mode with same name exists,
+ *					plugin has already registered a game mode or creation failed
  */
 native GameMode:Gamma_RegisterGameMode(const String:name[]);
 
@@ -202,13 +205,13 @@ native GameMode:Gamma_FindGameMode(const String:name[]);
 native Gamma_GetGameModeName(GameMode:gameMode, String:buffer[], maxlen);
 
 /**
- *	Returns an ADT array with all behaviour types for a game mode
+ *	Gets a behaviour type iterator with all the behaviour types in the game mode
  *
  *	@param gameMode		Game mode to get all behaviour types from
- *	@return 			ADT array with all behaviour types in the game mode
+ *	@return 			Behaviour type iterator
  *	@note				Must be closed with CloseHandle!
  */
-native Handle:Gamma_GetGameModeBehaviourTypes(GameMode:gameMode);
+native Handle:Gamma_GetGameModeBehaviourTypeIterator(GameMode:gameMode);
 
 /**
  *	Forces the game mode to end
@@ -227,17 +230,19 @@ native Gamma_ForceStopGameMode();
 /**
  *	Creates a new BehaviourType with the specified name
  *
- *	@param name		Name of the behaviour type
- *	@return			Reference to the new behaviour type
- *	@error			Behaviour type of same name exists or not called in Gamma_OnCreateGameMode
+ *	@param name			Name of the behaviour type
+ *	@param superType	Optional: Super type of this behaviour
+ *	@return				Reference to the new behaviour type
+ *	@error				Behaviour type of same name exists or not called in Gamma_OnCreateGameMode
  */
-native BehaviourType:Gamma_CreateBehaviourType(const String:name[]);
+native BehaviourType:Gamma_CreateBehaviourType(const String:name[], BehaviourType:superType=INVALID_BEHAVIOUR_TYPE);
 
 /**
  *	Creates a new BehaviourType with the specified name
  *
  *	@param name		Name of the behaviour type
- *	@return			Reference to the new behaviour type or INVALID_BEHAVIOUR_TYPE if no behaviour type was found
+ *	@return			Reference to the new behaviour type or 
+ *					INVALID_BEHAVIOUR_TYPE if no behaviour type was found
  */
 native BehaviourType:Gamma_FindBehaviourType(const String:name[]);
 
@@ -263,6 +268,7 @@ native Gamma_AddBehaviourTypeRequirement(BehaviourType:behaviourType, const Stri
 
 /**
  *	Gets whether or not the behaviour type type owns the behaviour
+ *	Note: Also returns true for behaviours of a sub type, even though those can't be iterated thoguht this behaviour types behaviours
  *
  *	@param behahviourType	Behaviour type see if behaviour is a child of
  *	@param behaviour		Behaviour to check the behaviour type from
@@ -271,13 +277,13 @@ native Gamma_AddBehaviourTypeRequirement(BehaviourType:behaviourType, const Stri
 native bool:Gamma_BehaviourTypeOwnsBehaviour(BehaviourType:behaviourType, Behaviour:behaviour);
 
 /**
- *	Returns an ADT array with Behaviours
+ *	Gets a behaviour iterator with all the behaviours of the behaviour type
  *
  *	@param behaviourType	Behaviour type to look for
- *	@return					ADT array with behaviours
+ *	@return					Behaviour iterator
  *	@note					Must be closed with CloseHandle!
  */
-native Handle:Gamma_GetBehaviourTypeBehaviours(BehaviourType:behaviourType);
+native Handle:Gamma_GetBehaviourTypeBehaviourIterator(BehaviourType:behaviourType);
 
 /**
  *	Returns whether or not a behaviour type has registered behaviours
@@ -291,7 +297,8 @@ native bool:Gamma_BehaviourTypeHasBehaviours(BehaviourType:behaviourType);
  *	Gets a random behaviour of type
  *
  *	@param behaviourType	Behaviour type to get a random behaviour of
- *	@return					Behaviour if the behaviour type has behaviours, otherwise INVALID_BEHAVIOUR
+ *	@return					Behaviour if the behaviour type has behaviours,
+ *							otherwise INVALID_BEHAVIOUR
  */
 native Behaviour:Gamma_GetRandomBehaviour(BehaviourType:behaviourType);
 
@@ -501,10 +508,11 @@ native Gamma_GetBehaviourFullName(Behaviour:behaviour, String:buffer[], maxlen);
  *	Gets the players possessed by the behaviour
  *
  *	@param behaviour	Behaviour to get the possessed players from
- *	@return				Handle to and ADT array containing the possessed players
- *	@note				Handle must be closed!
+ *	@param players		Array to store the possessed players in
+ *	@param maxlength	Length of the players array
+ *	@return				Amount of players written to the array
  */
-native Handle:Gamma_GetPossessedPlayers(Behaviour:behaviour);
+native Handle:Gamma_GetPossessedPlayers(Behaviour:behaviour, players[], maxsize);
 
 /**
  *	Gets whether or not a Behaviour has implemented a function
@@ -555,18 +563,21 @@ native Gamma_SimpleBehaviourFunctionCall(Behaviour:behaviour, const String:funct
 
 /**
  *	Gives a client a Behaviour
- *	Can only be called by the current game mode's plugin
+ *	Can only be called by the current game mode's plugin or the behaviour owning the behaviour type.
+ *	for the latter instigator needs to be a client with the owning behaviour
  *
  *	@param client		Client index to give the behaviour to
  *	@param behaviour	Behaviour to give to the client
+ *	@param instigator	The client who caused the behaviour to be given, only used by behaviours given by other behaviours
  *	@noreturn
  *	@error				Invalid client index or INVALID_BEHAVIOUR
  */
-native Gamma_GiveBehaviour(client, Behaviour:behaviour);
+native Gamma_GiveBehaviour(client, Behaviour:behaviour, instigator=0);
 
 /**
  *	Takes a clients Behaviour
- *	Can only be called by the current game mode's plugin
+ *	Can only be called by the current game mode's plugin or the behaviour owning the behaviour type.
+ *	The game mode can take behaviours that are sub types of one of its behabiour types away
  *
  *	@param client		Client index to take the behaviour from
  *	@param behaviour	Behaviour to take from the client
@@ -577,25 +588,108 @@ native Gamma_TakeBehaviour(client, Behaviour:behaviour);
 
 /**
  *	Gives a client a random Behaviour
- *	Can only be called by the current game mode's plugin
+ *	Can only be called by the current game mode's plugin or the behaviour owning the behaviour type.
+ *	for the latter instigator needs to be a client with the owning behaviour
  *
  *	@param client			Client index to give the behaviour to
  *	@param behaviourType	A random behaviour of this type to give to the client
+ *	@param instigator		The client who caused the behaviour to be given, only used by behaviours given by other behaviours
  *	@return					Behaviour given or INVALID_BEHAVIOUR
  *	@error					Invalid client index or INVALID_BEHAVIOUR_TYPE
  */
-native Behaviour:Gamma_GiveRandomBehaviour(client, BehaviourType:behaviourType);
+native Behaviour:Gamma_GiveRandomBehaviour(client, BehaviourType:behaviourType, instigator=0);
 
 /**
- *	Gets all the behaviours possessing a player
+ *	Gets an iterator for a players behaviours
  *
  *	@param client	Client index to get behaviours from
  *	@param filter	Behaviour type filter, INVALID_BEHAVIOUR_TYPE to get all behaviours
- *	@return			Handle to an ADT array containing the players behaviours
+ *	@return			Behaviour iterator
  *	@note			Handle must be closed!
  *	@error			Invalid client index
  */
-native Handle:Gamma_GetPlayerBehaviours(client, BehaviourType:filter=INVALID_BEHAVIOUR_TYPE);
+native Handle:Gamma_GetPlayerBehaviourIterator(client, BehaviourType:filter=INVALID_BEHAVIOUR_TYPE);
+
+/**
+ *	Checks whether or not a client is possessed by a behaviour
+ *
+ *	@param client		Client index to check behaviour on
+ *	@param behaviour	Behaviour to check if the client is possessed by
+ *	@return				True if the client is possessed, false otherwise
+ *	@error				Invalid client index
+ */
+native bool:Gamma_IsPlayerPossessedByBehaviour(client, Behaviour:behaviour);
+
+/**
+ *	Checks whether or not a client is possessed by a behaviour owned by a plugin
+ *
+ *	@param client		Client index to check behaviour on
+ *	@param plugin		Plugin to check if the client is possessed by
+ *	@return				True if the client is possessed, false otherwise
+ *	@error				Invalid client index
+ */
+native bool:Gamma_IsPlayerPossessedByPlugin(client, Handle:plugin);
+
+
+
+/*******************************************************************************
+ *	ITERATORS				
+ *******************************************************************************/
+
+/**
+ *	Gets whether or not there's more game modes in the iterator
+ *
+ *	@param iter		Iterator to check if there more game modes in
+ *	@return			True if there's more game modes, false otherwise
+ *	@error			Invalid iterator
+ */
+native bool:Gamma_MoreGameModes(Handle:iter);
+
+/**
+ *	Reads the current game mode and advances the iterator
+ *
+ *	@param iter		Iterator to read game mode from
+ *	@return			Game mode or INVALID_GAME_MODE if there's no more game modes
+ *	@error			Invalid iterator
+ */
+native GameMode:Gamma_ReadGameMode(Handle:iter);
+
+/**
+ *	Gets whether or not there's more behaviour types in the iterator
+ *
+ *	@param iter		Iterator to check if there more behaviour types in
+ *	@return			True if there's more behaviour types, false otherwise
+ *	@error			Invalid iterator
+ */
+native bool:Gamma_MoreBehaviourTypes(Handle:iter);
+
+/**
+ *	Reads the current behaviour type and advances the iterator
+ *
+ *	@param iter		Iterator to read behaviour type from
+ *	@return			Behaviour type or INVALID_BEGAVIOUR_TYPE if there's no more behaviour types
+ *	@error			Invalid iterator
+ */
+native Behaviour:Gamma_ReadBehaviourType(Handle:iter);
+
+/**
+ *	Gets whether or not there's more behaviours in the iterator
+ *
+ *	@param iter		Iterator to check if there more behaviours in
+ *	@return			True if there's more behaviours, false otherwise
+ *	@error			Invalid iterator
+ */
+native bool:Gamma_MoreBehaviours(Handle:iter);
+
+/**
+ *	Reads the current behaviour and advances the iterator
+ *
+ *	@param iter		Iterator to read behaviour from
+ *	@return			Behaviour or INVALID_BEHAVIOUR if there's no more behaviours
+ *	@error			Invalid iterator
+ */
+native Behaviour:Gamma_ReadBehaviour(Handle:iter);
+
 
 
 
@@ -696,14 +790,14 @@ public SharedPlugin:__pl_gamma =
 public __pl_gamma_SetNTVOptional()
 {
 	// Misc natives
-	MarkNativeAsOptional("Gamma_GetAllGameModes");
+	MarkNativeAsOptional("Gamma_GetGameModeIterator");
 	MarkNativeAsOptional("Gamma_GetCurrentGameMode");
 
 	// Game mode natives
 	MarkNativeAsOptional("Gamma_RegisterGameMode");
 	MarkNativeAsOptional("Gamma_FindGameMode");
 	MarkNativeAsOptional("Gamma_GetGameModeName");
-	MarkNativeAsOptional("Gamma_GetGameModeBehaviourTypes");
+	MarkNativeAsOptional("Gamma_GetGameModeBehaviourTypeIterator");
 	MarkNativeAsOptional("Gamma_ForceStopGameMode");
 
 	// Behaviour type natives
@@ -712,7 +806,7 @@ public __pl_gamma_SetNTVOptional()
 	MarkNativeAsOptional("Gamma_GetBehaviourTypeName");
 	MarkNativeAsOptional("Gamma_AddBehaviourTypeRequirement");
 	MarkNativeAsOptional("Gamma_BehaviourTypeOwnsBehaviour");
-	MarkNativeAsOptional("Gamma_GetBehaviourTypeBehaviours");
+	MarkNativeAsOptional("Gamma_GetBehaviourTypeBehaviourIterator");
 	MarkNativeAsOptional("Gamma_BehaviourTypeHasBehaviours");
 	MarkNativeAsOptional("Gamma_GetRandomBehaviour");
 
@@ -732,23 +826,21 @@ public __pl_gamma_SetNTVOptional()
 	MarkNativeAsOptional("Gamma_GiveBehaviour");
 	MarkNativeAsOptional("Gamma_TakeBehaviour");
 	MarkNativeAsOptional("Gamma_GiveRandomBehaviour");
-	MarkNativeAsOptional("Gamma_GetPlayerBehaviours");
+	MarkNativeAsOptional("Gamma_GetPlayerBehaviourIterator");
+	MarkNativeAsOptional("Gamma_IsPlayerPossessedByBehaviour");
+	MarkNativeAsOptional("Gamma_IsPlayerPossessedByPlugin");
 
-	// Game mode properties natives
-	MarkNativeAsOptional("Gamma_SetGameModeValue");
-	MarkNativeAsOptional("Gamma_SetGameModeArray");
-	MarkNativeAsOptional("Gamma_SetGameModeString");
-	MarkNativeAsOptional("Gamma_GetGameModeValue");
-	MarkNativeAsOptional("Gamma_GetGameModeArray");
-	MarkNativeAsOptional("Gamma_GetGameModeString");
+	// Game mode iterator natives
+	MarkNativeAsOptional("Gamma_MoreGameModes");
+	MarkNativeAsOptional("Gamma_ReadGameMode");
 
-	// Behaviour properties natives
-	MarkNativeAsOptional("Gamma_SetBehaviourValue");
-	MarkNativeAsOptional("Gamma_SetBehaviourArray");
-	MarkNativeAsOptional("Gamma_SetBehaviourString");
-	MarkNativeAsOptional("Gamma_GetBehaviourValue");
-	MarkNativeAsOptional("Gamma_GetBehaviourArray");
-	MarkNativeAsOptional("Gamma_GetBehaviourString");
+	// Behaviour type iterator natives
+	MarkNativeAsOptional("Gamma_MoreBehaviourTypes");
+	MarkNativeAsOptional("Gamma_ReadBehaviourType");
+
+	// Behaviour iterator natives
+	MarkNativeAsOptional("Gamma_MoreBehaviours");
+	MarkNativeAsOptional("Gamma_ReadBehaviour");
 
 	// Special natives
 	MarkNativeAsOptional("__GAMMA_PluginUnloading");
